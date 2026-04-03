@@ -71,12 +71,12 @@ public class DataLoader {
                     t.setProjectId(allProjects.get(0).getId());
                     changed = true;
                 }
-                if (t.getStartDate() == null || t.getStartDate().isEmpty()) {
-                    t.setStartDate("2024-04-01");
+                if (t.getPlannedStartDate() == null || t.getPlannedStartDate().isEmpty()) {
+                    t.setPlannedStartDate("2024-04-01");
                     changed = true;
                 }
-                if (t.getEndDate() == null || t.getEndDate().isEmpty()) {
-                    t.setEndDate("2024-05-08");
+                if (t.getPlannedEndDate() == null || t.getPlannedEndDate().isEmpty()) {
+                    t.setPlannedEndDate("2024-05-08");
                     changed = true;
                 }
                 if (changed) taskRepository.save(t);

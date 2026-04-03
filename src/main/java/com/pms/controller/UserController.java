@@ -77,6 +77,7 @@ public class UserController {
             if (payload.containsKey("password") && !payload.get("password").isBlank()) {
                 user.setPassword(passwordEncoder.encode(payload.get("password")));
             }
+            @SuppressWarnings("null")
             User saved = userRepository.save(user);
             return ResponseEntity.ok(saved);
         }).orElse(ResponseEntity.notFound().build());

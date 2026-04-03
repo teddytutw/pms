@@ -6,9 +6,24 @@ import 'gantt-task-react/dist/index.css';
 import WBSView from '../components/WBSView';
 
 import {
-  LayoutDashboard, Users, Settings, Search,
+  LayoutDashboard, Settings, Search,
   Menu, X, FolderPlus, BarChart2, LogOut, List
 } from 'lucide-react';
+
+const calcWorkingDays = (start?: string, end?: string) => {
+  if (!start || !end) return 0;
+  const dStart = new Date(start);
+  const dEnd = new Date(end);
+  if (isNaN(dStart.getTime()) || isNaN(dEnd.getTime()) || dEnd < dStart) return 0;
+  let days = 0;
+  let current = new Date(dStart);
+  while (current <= dEnd) {
+    const day = current.getDay();
+    if (day !== 0 && day !== 6) days++;
+    current.setDate(current.getDate() + 1);
+  }
+  return days;
+};
 
 export default function Dashboard() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -20,6 +35,7 @@ export default function Dashboard() {
 
   // View & selection
   const [viewState, setViewState] = useState<'list' | 'gantt'>('list');
+  const [ganttViewMode, setGanttViewMode] = useState<ViewMode>(ViewMode.Day);
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
 
   // Data
@@ -31,8 +47,8 @@ export default function Dashboard() {
   const [currentUser, setCurrentUser] = useState<any>(null);
 
   // Form
-  const [newTask, setNewTask] = useState({ title: '', projectId: null as number | null, startDate: '', endDate: '', assigneeId: null as number | null, phase: 'Planning' });
-  const [newProject, setNewProject] = useState({ id: null as number | null, name: '', description: '', ownerId: null as number | null, startDate: '', endDate: '', budget: 0 });
+  const [newTask, setNewTask] = useState({ title: '', projectId: null as number | null, plannedStartDate: '', plannedEndDate: '', assigneeId: null as number | null, phase: 'Planning' });
+  const [newProject, setNewProject] = useState({ id: null as number | null, name: '', description: '', ownerId: null as number | null, plannedStartDate: '', plannedEndDate: '', budget: 0 });
 
   useEffect(() => {
     const userJson = localStorage.getItem('currentUser');
@@ -115,15 +131,15 @@ export default function Dashboard() {
     } catch { setProjects(prev => prev.map(p => p.id === projectId ? proj : p)); }
   };
 
-  const handleRenameTask = async (taskId: number, newTitle: string) => {
+  const handleUpdateTask = async (taskId: number, updates: any) => {
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
-    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, title: newTitle } : t));
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, ...updates } : t));
     try {
       await fetch(`http://localhost:8080/api/tasks/${taskId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: newTitle }),
+        body: JSON.stringify(updates),
       });
     } catch { setTasks(prev => prev.map(t => t.id === taskId ? task : t)); }
   };
@@ -138,14 +154,14 @@ export default function Dashboard() {
     try {
       const res = await fetch(url, {
         method, headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...newProject, status: 'ACTIVE', plannedStartDate: newProject.startDate, plannedEndDate: newProject.endDate }),
+        body: JSON.stringify({ ...newProject, status: 'ACTIVE' }),
       });
       if (res.ok) {
         const saved = await res.json();
         setProjects(newProject.id ? projects.map(p => p.id === saved.id ? saved : p) : [...projects, saved]);
         setSelectedProjectId(saved.id);
         setIsCreateProjectModalOpen(false);
-        setNewProject({ id: null, name: '', description: '', ownerId: null, startDate: '', endDate: '', budget: 0 });
+        setNewProject({ id: null, name: '', description: '', ownerId: null, plannedStartDate: '', plannedEndDate: '', budget: 0 });
       }
     } catch (err) { console.error(err); }
   };
@@ -162,7 +178,7 @@ export default function Dashboard() {
         const created = await res.json();
         setTasks([created, ...tasks]);
         setIsCreateTaskModalOpen(false);
-        setNewTask({ title: '', projectId: selectedProjectId, startDate: '', endDate: '', assigneeId: null, phase: 'Planning' });
+        setNewTask({ title: '', projectId: selectedProjectId, plannedStartDate: '', plannedEndDate: '', assigneeId: null, phase: 'Planning' });
       }
     } catch (err) { console.error(err); }
   };
@@ -190,19 +206,58 @@ export default function Dashboard() {
   const isOwner = currentUser && currentProject && currentProject.ownerId === currentUser.id;
 
   const PHASES = ['Initiation', 'Planning', 'Execution', 'Monitoring', 'Closing'];
-  const ganttTasks: GanttTask[] = tasks
-    .filter(t => t.startDate && t.endDate && new Date(t.startDate) <= new Date(t.endDate))
-    .map((t, i) => ({
-      start: new Date(t.startDate), end: new Date(t.endDate), name: t.title,
-      id: String(t.id || i), type: 'task' as const,
-      progress: t.status === '已完成' ? 100 : (t.status === '進行中' ? 50 : 0),
-      isDisabled: true, styles: { progressColor: '#6366f1', progressSelectedColor: '#4f46e5' },
-    }));
+  const ganttTasks: GanttTask[] = [];
+
+  if (currentProject) {
+    const projectStart = currentProject.plannedStartDate ? new Date(currentProject.plannedStartDate) : new Date();
+    const projectEnd = currentProject.plannedEndDate ? new Date(currentProject.plannedEndDate) : new Date();
+
+    ganttTasks.push({
+      start: projectStart, end: projectEnd, name: currentProject.name,
+      id: `project-${currentProject.id}`, type: 'project' as const, progress: 0, isDisabled: true,
+      styles: { progressColor: '#6366f1', progressSelectedColor: '#4f46e5' }
+    });
+
+    PHASES.forEach((phase, index) => {
+      const phaseTasks = tasks.filter(t => t.phase === phase && t.plannedStartDate && t.plannedEndDate);
+      if (phaseTasks.length > 0) {
+        const pStarts = phaseTasks.map(t => new Date(t.plannedStartDate).getTime());
+        const pEnds = phaseTasks.map(t => new Date(t.plannedEndDate).getTime());
+        const phaseStart = new Date(Math.min(...pStarts));
+        const phaseEnd = new Date(Math.max(...pEnds));
+
+        ganttTasks.push({
+          start: phaseStart, end: phaseEnd, name: `Phase ${index + 1}: ${phase}`,
+          id: `phase-${phase}`, type: 'project' as const, project: `project-${currentProject.id}`,
+          progress: 0, isDisabled: true, hideChildren: false,
+          styles: { progressColor: '#8b5cf6', progressSelectedColor: '#7c3aed', backgroundColor: '#eedeff' }
+        });
+
+        phaseTasks.forEach(t => {
+          let prog = 0;
+          if (t.status === '已完成') prog = 100;
+          else if (t.status === '進行中' && t.plannedStartDate && t.plannedEndDate) {
+            const planD = calcWorkingDays(t.plannedStartDate, t.plannedEndDate) || 1;
+            const actD = calcWorkingDays(t.actualStartDate, t.actualEndDate) || 0;
+            prog = Math.min(100, Math.floor((actD / planD) * 100));
+          } else if (t.status === '進行中') {
+            prog = 50;
+          }
+
+          ganttTasks.push({
+            start: new Date(t.plannedStartDate), end: new Date(t.plannedEndDate), name: t.title,
+            id: String(t.id), type: 'task' as const, project: `phase-${phase}`,
+            progress: prog, isDisabled: true,
+            styles: { progressColor: '#3b82f6', progressSelectedColor: '#2563eb' }
+          });
+        });
+      }
+    });
+  }
 
   const navItems = [
     { name: '儀表板', icon: LayoutDashboard, onClick: () => navigate('/dashboard'), active: true },
-    { name: '團隊成員管理', icon: Users, onClick: () => navigate('/team'), active: false },
-    { name: '系統設定', icon: Settings, onClick: () => {}, active: false },
+    { name: '系統設定', icon: Settings, onClick: () => { }, active: false },
   ];
 
   return (
@@ -272,7 +327,7 @@ export default function Dashboard() {
                 <button
                   onClick={() => {
                     setIsCreateTaskModalOpen(true);
-                    setNewTask({ title: '', projectId: selectedProjectId, startDate: '', endDate: '', assigneeId: null, phase: 'Initiation' });
+                    setNewTask({ title: '', projectId: selectedProjectId, plannedStartDate: '', plannedEndDate: '', assigneeId: null, phase: 'Initiation' });
                   }}
                   className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold hover:bg-indigo-700 transition-all flex items-center shadow-lg shadow-indigo-200 text-sm"
                 >
@@ -296,7 +351,13 @@ export default function Dashboard() {
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <button
-                      onClick={() => { setNewProject({ ...currentProject, startDate: currentProject.plannedStartDate, endDate: currentProject.plannedEndDate }); setIsCreateProjectModalOpen(true); }}
+                      onClick={() => navigate(`/details/PROJECT/${currentProject.id}`)}
+                      className="px-3 py-2 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-xl hover:bg-indigo-100 transition-all shadow-sm"
+                    >
+                      📄 詳細維護面板
+                    </button>
+                    <button
+                      onClick={() => { setNewProject({ ...currentProject }); setIsCreateProjectModalOpen(true); }}
                       className="px-3 py-2 bg-gray-50 text-gray-600 text-xs font-bold rounded-xl hover:bg-gray-100 transition-all"
                     >
                       ✎ 編輯章程
@@ -351,6 +412,24 @@ export default function Dashboard() {
                   </button>
                 </div>
 
+                {/* Gantt View Toggles */}
+                {viewState === 'gantt' && (
+                  <div className="flex items-center gap-2 bg-gray-50 p-1 rounded-lg border ml-4">
+                    <button
+                      onClick={() => setGanttViewMode(ViewMode.Day)}
+                      className={`px-3 py-1 text-xs font-bold rounded ${ganttViewMode === ViewMode.Day ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:bg-gray-100'}`}
+                    >
+                      天 (Day)
+                    </button>
+                    <button
+                      onClick={() => setGanttViewMode(ViewMode.Week)}
+                      className={`px-3 py-1 text-xs font-bold rounded ${ganttViewMode === ViewMode.Week ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:bg-gray-100'}`}
+                    >
+                      週 (Week)
+                    </button>
+                  </div>
+                )}
+
                 {/* Team avatars */}
                 <div className="flex items-center gap-3">
                   <div className="flex -space-x-1.5">
@@ -363,9 +442,6 @@ export default function Dashboard() {
                       );
                     })}
                   </div>
-                  <button onClick={() => navigate('/team')} className="text-xs text-indigo-500 font-bold hover:text-indigo-700 hover:underline whitespace-nowrap">
-                    管理團隊 ({projectMembers.length})
-                  </button>
                 </div>
               </div>
 
@@ -380,7 +456,7 @@ export default function Dashboard() {
                     selectedProjectId={selectedProjectId}
                     onTaskMoved={handleTaskMoved}
                     onRenameProject={handleRenameProject}
-                    onRenameTask={handleRenameTask}
+                    onUpdateTask={handleUpdateTask}
                   />
                 ) : (
                   <div className="h-full">
@@ -389,7 +465,22 @@ export default function Dashboard() {
                     </p>
                     {ganttTasks.length > 0 ? (
                       <div className="rounded-xl border border-gray-100 overflow-hidden">
-                        <Gantt tasks={ganttTasks} viewMode={ViewMode.Day} listCellWidth="" columnWidth={60} locale="zh" />
+                        <Gantt
+                          tasks={ganttTasks}
+                          viewMode={ganttViewMode}
+                          listCellWidth=""
+                          columnWidth={60}
+                          locale="zh"
+                          onClick={(task) => {
+                            if (task.id.startsWith('project-')) {
+                              navigate('/details/PROJECT/' + task.id.split('-')[1]);
+                            } else if (task.id.startsWith('phase-')) {
+                              navigate('/details/PHASE/' + selectedProjectId + '-' + task.id.substring(6));
+                            } else {
+                              navigate('/details/TASK/' + task.id);
+                            }
+                          }}
+                        />
                       </div>
                     ) : (
                       <div className="flex flex-col items-center justify-center py-20 text-center">
@@ -455,13 +546,13 @@ export default function Dashboard() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">開始日期</label>
-                    <input type="date" value={newTask.startDate} onChange={e => setNewTask({ ...newTask, startDate: e.target.value })}
+                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">規劃開始日期</label>
+                    <input type="date" value={newTask.plannedStartDate} onChange={e => setNewTask({ ...newTask, plannedStartDate: e.target.value })}
                       className="w-full px-4 py-2.5 bg-gray-50 border-2 border-transparent focus:border-indigo-400 rounded-xl outline-none text-sm font-bold" />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">結束日期</label>
-                    <input type="date" value={newTask.endDate} onChange={e => setNewTask({ ...newTask, endDate: e.target.value })}
+                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">規劃結束日期</label>
+                    <input type="date" value={newTask.plannedEndDate} onChange={e => setNewTask({ ...newTask, plannedEndDate: e.target.value })}
                       className="w-full px-4 py-2.5 bg-gray-50 border-2 border-transparent focus:border-indigo-400 rounded-xl outline-none text-sm font-bold" />
                   </div>
                 </div>

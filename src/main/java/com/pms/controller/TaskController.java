@@ -39,8 +39,10 @@ public class TaskController {
             if (taskDetails.getStatus() != null) task.setStatus(taskDetails.getStatus());
             if (taskDetails.getProjectId() != null) task.setProjectId(taskDetails.getProjectId());
             if (taskDetails.getAssigneeId() != null) task.setAssigneeId(taskDetails.getAssigneeId());
-            if (taskDetails.getStartDate() != null) task.setStartDate(taskDetails.getStartDate());
-            if (taskDetails.getEndDate() != null) task.setEndDate(taskDetails.getEndDate());
+            if (taskDetails.getPlannedStartDate() != null) task.setPlannedStartDate(taskDetails.getPlannedStartDate());
+            if (taskDetails.getPlannedEndDate() != null) task.setPlannedEndDate(taskDetails.getPlannedEndDate());
+            if (taskDetails.getActualStartDate() != null) task.setActualStartDate(taskDetails.getActualStartDate());
+            if (taskDetails.getActualEndDate() != null) task.setActualEndDate(taskDetails.getActualEndDate());
             if (taskDetails.getPhase() != null) task.setPhase(taskDetails.getPhase());
             if (taskDetails.getEstimatedHours() != null) task.setEstimatedHours(taskDetails.getEstimatedHours());
             if (taskDetails.getActualHours() != null) task.setActualHours(taskDetails.getActualHours());
@@ -69,6 +71,32 @@ public class TaskController {
             }
             if (fields.containsKey("status")) {
                 task.setStatus((String) fields.get("status"));
+            }
+            if (fields.containsKey("assigneeId")) {
+                Object aid = fields.get("assigneeId");
+                if (aid == null) {
+                    task.setAssigneeId(null);
+                } else if (aid instanceof Number) {
+                    task.setAssigneeId(((Number) aid).longValue());
+                } else {
+                    try {
+                        task.setAssigneeId(Long.parseLong(aid.toString()));
+                    } catch (NumberFormatException e) {
+                        task.setAssigneeId(null);
+                    }
+                }
+            }
+            if (fields.containsKey("plannedStartDate")) {
+                task.setPlannedStartDate((String) fields.get("plannedStartDate"));
+            }
+            if (fields.containsKey("plannedEndDate")) {
+                task.setPlannedEndDate((String) fields.get("plannedEndDate"));
+            }
+            if (fields.containsKey("actualStartDate")) {
+                task.setActualStartDate((String) fields.get("actualStartDate"));
+            }
+            if (fields.containsKey("actualEndDate")) {
+                task.setActualEndDate((String) fields.get("actualEndDate"));
             }
             @SuppressWarnings("null")
             final Task saved = taskRepository.save(task);

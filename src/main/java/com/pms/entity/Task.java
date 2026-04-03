@@ -26,11 +26,17 @@ public class Task {
     @Column(name = "assignee_id")
     private Long assigneeId; // 指派人員 / 執行者 (資源)
 
-    @Column(name = "start_date", length = 50)
-    private String startDate; // 任務開始時間 (Gantt Chart 需求)
+    @Column(name = "planned_start_date", length = 50)
+    private String plannedStartDate;
 
-    @Column(name = "end_date", length = 50)
-    private String endDate; // 任務結束時間 (取代原本單純的dueDate)
+    @Column(name = "planned_end_date", length = 50)
+    private String plannedEndDate;
+
+    @Column(name = "actual_start_date", length = 50)
+    private String actualStartDate;
+
+    @Column(name = "actual_end_date", length = 50)
+    private String actualEndDate;
 
     @Column(name = "estimated_hours")
     private Integer estimatedHours; // 預估工時
@@ -57,10 +63,14 @@ public class Task {
     public void setStatus(String status) { this.status = status; }
     public Long getAssigneeId() { return assigneeId; }
     public void setAssigneeId(Long assigneeId) { this.assigneeId = assigneeId; }
-    public String getStartDate() { return startDate; }
-    public void setStartDate(String startDate) { this.startDate = startDate; }
-    public String getEndDate() { return endDate; }
-    public void setEndDate(String endDate) { this.endDate = endDate; }
+    public String getPlannedStartDate() { return plannedStartDate; }
+    public void setPlannedStartDate(String plannedStartDate) { this.plannedStartDate = plannedStartDate; }
+    public String getPlannedEndDate() { return plannedEndDate; }
+    public void setPlannedEndDate(String plannedEndDate) { this.plannedEndDate = plannedEndDate; }
+    public String getActualStartDate() { return actualStartDate; }
+    public void setActualStartDate(String actualStartDate) { this.actualStartDate = actualStartDate; }
+    public String getActualEndDate() { return actualEndDate; }
+    public void setActualEndDate(String actualEndDate) { this.actualEndDate = actualEndDate; }
     public Integer getEstimatedHours() { return estimatedHours; }
     public void setEstimatedHours(Integer estimatedHours) { this.estimatedHours = estimatedHours; }
     public Integer getActualHours() { return actualHours; }

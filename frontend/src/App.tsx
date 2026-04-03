@@ -2,7 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import Landing from './pages/Landing';
 import Dashboard from './pages/Dashboard';
 import Login from './pages/Login';
-import TeamManagement from './pages/TeamManagement';
+import EntityDetails from './pages/EntityDetails';
 
 // 簡單的路由守衛組件
 const PrivateRoute = ({ children }: { children: JSX.Element }) => {
@@ -30,12 +30,12 @@ function App() {
           } 
         />
 
-        {/* 團隊成員維護頁面 (受保護) */}
+        {/* 詳細維護頁面 (受保護) */}
         <Route 
-          path="/team" 
+          path="/details/:targetType/:targetId" 
           element={
             <PrivateRoute>
-              <TeamManagement />
+              <EntityDetails />
             </PrivateRoute>
           } 
         />

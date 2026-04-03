@@ -1,4 +1,5 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import {
   FolderOpen, Layers, CheckSquare2, ShieldCheck, ChevronDown, ChevronRight,
@@ -15,8 +16,10 @@ interface WBSTask {
   projectId: number;
   status?: string;
   assigneeId?: number;
-  startDate?: string;
-  endDate?: string;
+  plannedStartDate?: string;
+  plannedEndDate?: string;
+  actualStartDate?: string;
+  actualEndDate?: string;
 }
 
 interface WBSGate {
@@ -44,8 +47,23 @@ interface WBSViewProps {
   selectedProjectId: number | null;
   onTaskMoved: (taskId: number, newPhase: string, newProjectId: number) => void;
   onRenameProject?: (projectId: number, newName: string) => void;
-  onRenameTask?: (taskId: number, newTitle: string) => void;
+  onUpdateTask?: (taskId: number, updates: Partial<WBSTask>) => void;
 }
+
+const calcWorkingDays = (start?: string, end?: string) => {
+  if (!start || !end) return 0;
+  const dStart = new Date(start);
+  const dEnd = new Date(end);
+  if (isNaN(dStart.getTime()) || isNaN(dEnd.getTime()) || dEnd < dStart) return 0;
+  let days = 0;
+  let current = new Date(dStart);
+  while (current <= dEnd) {
+    const day = current.getDay();
+    if (day !== 0 && day !== 6) days++;
+    current.setDate(current.getDate() + 1);
+  }
+  return days;
+};
 
 // ──────────────────────────────────────────
 //  Constants
@@ -119,17 +137,6 @@ function NodeTypeTag({ type }: { type: keyof typeof nodeConfig }) {
   );
 }
 
-function TaskStatusBadge({ status }: { status?: string }) {
-  const s = status || '待辦';
-  const cfg = statusConfig[s] ?? statusConfig['待辦'];
-  const { Icon, color } = cfg;
-  return (
-    <span className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${color}`}>
-      <Icon className="w-3 h-3" />{s}
-    </span>
-  );
-}
-
 // ──────────────────────────────────────────
 //  Main Component
 // ──────────────────────────────────────────
@@ -141,8 +148,9 @@ export default function WBSView({
   selectedProjectId,
   onTaskMoved,
   onRenameProject,
-  onRenameTask,
+  onUpdateTask,
 }: WBSViewProps) {
+  const navigate = useNavigate();
   const [expandedPhases,    setExpandedPhases]    = useState<Record<string, boolean>>(() =>
     PHASES.reduce((a, p) => ({ ...a, [p]: true }), {})
   );
@@ -153,10 +161,7 @@ export default function WBSView({
   // Editing state: "project-{id}", "task-{id}", "phase-{phase}"
   const [editingKey, setEditingKey] = useState<string | null>(null);
 
-  const getUserName = useCallback(
-    (id?: number) => id ? (users.find(u => u.id === id)?.name ?? '未指派') : '未指派',
-    [users]
-  );
+
 
   const visibleProjects = selectedProjectId
     ? projects.filter(p => p.id === selectedProjectId)
@@ -260,9 +265,15 @@ export default function WBSView({
                           <button
                             onClick={() => setEditingKey(editingKey === phaseEditKey ? null : phaseEditKey)}
                             className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-violet-100 text-violet-400 transition-all shrink-0"
-                            title="Phase 名稱由標準定義，可在此標記備註 (未來功能)"
+                            title="修改名稱"
                           >
                             <Pencil className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); navigate(`/details/PHASE/${project.id}-${phase}`); }}
+                            className="opacity-0 group-hover:opacity-100 text-[10px] bg-violet-100 text-violet-600 px-2 py-1 rounded font-bold hover:bg-violet-200 transition-all ml-2"
+                          >
+                            詳細維護
                           </button>
 
                           <NodeTypeTag type="phase" />
@@ -291,8 +302,6 @@ export default function WBSView({
                                 }`}
                               >
                                 {phaseTasks.map((task, idx) => {
-                                  const assigneeName = getUserName(task.assigneeId);
-                                  const initials     = assigneeName !== '未指派' ? assigneeName.charAt(0) : '?';
                                   const taskEditKey  = `task-${task.id}`;
 
                                   return (
@@ -324,7 +333,7 @@ export default function WBSView({
                                           {editingKey === taskEditKey ? (
                                             <InlineEdit
                                               value={task.title}
-                                              onSave={title => { onRenameTask?.(task.id, title); setEditingKey(null); }}
+                                              onSave={title => { onUpdateTask?.(task.id, { title }); setEditingKey(null); }}
                                               onCancel={() => setEditingKey(null)}
                                               className="flex-1"
                                             />
@@ -340,31 +349,94 @@ export default function WBSView({
 
                                           {/* Edit btn */}
                                           {editingKey !== taskEditKey && (
-                                            <button
-                                              onClick={e => { e.stopPropagation(); setEditingKey(taskEditKey); }}
-                                              className="opacity-0 group-hover/task:opacity-100 p-1 rounded hover:bg-indigo-100 text-indigo-400 transition-all shrink-0"
-                                              title="修改任務名稱"
-                                            >
-                                              <Pencil className="w-3 h-3" />
-                                            </button>
+                                            <div className="flex gap-1 shrink-0 ml-2">
+                                              <button
+                                                onClick={e => { e.stopPropagation(); setEditingKey(taskEditKey); }}
+                                                className="opacity-0 group-hover/task:opacity-100 p-1.5 rounded-lg hover:bg-indigo-100 text-indigo-400 transition-all"
+                                                title="修改任務名稱"
+                                              >
+                                                <Pencil className="w-3.5 h-3.5" />
+                                              </button>
+                                              <button
+                                                onClick={(e) => { e.stopPropagation(); navigate(`/details/TASK/${task.id}`); }}
+                                                className="opacity-0 group-hover/task:opacity-100 text-[10px] bg-indigo-50 border border-indigo-100 text-indigo-600 px-2 rounded-lg font-bold hover:bg-indigo-100 transition-all"
+                                              >
+                                                詳細維護
+                                              </button>
+                                            </div>
                                           )}
 
-                                          {/* Meta */}
-                                          <div className="hidden sm:flex items-center gap-2 shrink-0">
-                                            {(task.startDate || task.endDate) && (
-                                              <span className="flex items-center gap-1 text-[10px] text-gray-400">
-                                                <Clock className="w-3 h-3" />
-                                                {task.startDate?.slice(5) ?? '?'} ~ {task.endDate?.slice(5) ?? '?'}
-                                              </span>
-                                            )}
-                                            <div
-                                              className="h-5 w-5 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-[9px] font-black shrink-0"
-                                              title={assigneeName}
-                                            >
-                                              {initials}
+                                          {/* Editable Data Columns */}
+                                          <div className="hidden lg:flex items-center shrink-0 text-[10px] divide-x divide-gray-100">
+                                            {/* Planned */}
+                                            <div className="flex flex-col px-3 items-center justify-center min-w-[120px]">
+                                              <span className="text-[9px] text-gray-400 font-bold mb-0.5">規劃 ({calcWorkingDays(task.plannedStartDate, task.plannedEndDate)} 天)</span>
+                                              <div className="flex items-center gap-1">
+                                                <input
+                                                  type="date"
+                                                  value={task.plannedStartDate || ''}
+                                                  onChange={e => onUpdateTask?.(task.id, { plannedStartDate: e.target.value })}
+                                                  className="w-[85px] bg-gray-50 border border-gray-200 rounded px-1 py-0.5 text-center text-gray-600 outline-none focus:border-indigo-400"
+                                                />
+                                                <span className="text-gray-300">-</span>
+                                                <input
+                                                  type="date"
+                                                  value={task.plannedEndDate || ''}
+                                                  onChange={e => onUpdateTask?.(task.id, { plannedEndDate: e.target.value })}
+                                                  className="w-[85px] bg-gray-50 border border-gray-200 rounded px-1 py-0.5 text-center text-gray-600 outline-none focus:border-indigo-400"
+                                                />
+                                              </div>
                                             </div>
-                                            <TaskStatusBadge status={task.status} />
-                                            <NodeTypeTag type="task" />
+
+                                            {/* Actual */}
+                                            <div className="flex flex-col px-3 items-center justify-center min-w-[120px]">
+                                              <span className="text-[9px] text-gray-400 font-bold mb-0.5">實際 ({calcWorkingDays(task.actualStartDate, task.actualEndDate)} 天)</span>
+                                              <div className="flex items-center gap-1">
+                                                <input
+                                                  type="date"
+                                                  value={task.actualStartDate || ''}
+                                                  onChange={e => onUpdateTask?.(task.id, { actualStartDate: e.target.value })}
+                                                  className="w-[85px] bg-gray-50 border border-gray-200 rounded px-1 py-0.5 text-center text-gray-600 outline-none focus:border-indigo-400"
+                                                />
+                                                <span className="text-gray-300">-</span>
+                                                <input
+                                                  type="date"
+                                                  value={task.actualEndDate || ''}
+                                                  onChange={e => onUpdateTask?.(task.id, { actualEndDate: e.target.value })}
+                                                  className="w-[85px] bg-gray-50 border border-gray-200 rounded px-1 py-0.5 text-center text-gray-600 outline-none focus:border-indigo-400"
+                                                />
+                                              </div>
+                                            </div>
+
+                                            {/* Assignee */}
+                                            <div className="px-3 min-w-[90px] flex justify-center">
+                                              <select
+                                                value={task.assigneeId || ''}
+                                                onChange={e => onUpdateTask?.(task.id, { assigneeId: e.target.value ? parseInt(e.target.value) : undefined })}
+                                                className="bg-gray-50 border border-gray-200 rounded px-1.5 py-1 outline-none focus:border-indigo-400 text-gray-700 w-full"
+                                              >
+                                                <option value="">未指派</option>
+                                                {users.map(u => (
+                                                  <option key={u.id} value={u.id}>{u.name}</option>
+                                                ))}
+                                              </select>
+                                            </div>
+
+                                            {/* Status */}
+                                            <div className="px-3 min-w-[90px] flex justify-center">
+                                              <select
+                                                value={task.status || '待辦'}
+                                                onChange={e => onUpdateTask?.(task.id, { status: e.target.value })}
+                                                className="bg-gray-50 border border-gray-200 rounded px-1.5 py-1 outline-none focus:border-indigo-400 text-gray-700 font-bold w-full"
+                                              >
+                                                {Object.keys(statusConfig).map(st => (
+                                                  <option key={st} value={st}>{st}</option>
+                                                ))}
+                                              </select>
+                                            </div>
+                                            <div className="pl-3">
+                                              <NodeTypeTag type="task" />
+                                            </div>
                                           </div>
                                         </div>
                                       )}
