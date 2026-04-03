@@ -1,0 +1,15 @@
+target/
+*.class
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store

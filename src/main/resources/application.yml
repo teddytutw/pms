@@ -1,0 +1,24 @@
+spring:
+  application:
+    name: pms-system
+  
+  datasource:
+    url: jdbc:oracle:thin:@172.16.199.114:1521:rdimsdb
+    username: pms
+    password: pms
+    driver-class-name: oracle.jdbc.OracleDriver
+    hikari:
+      connection-timeout: 30000
+      maximum-pool-size: 10
+
+  jpa:
+    hibernate:
+      ddl-auto: update # 自動根據 Entity 建立或更新資料表 (開發階段使用)
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.OracleDialect
+
+server:
+  port: 8080
