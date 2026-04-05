@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogIn, Lock, Mail } from 'lucide-react';
+import { LogIn, Lock, Users } from 'lucide-react';
 
 export default function Login() {
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -18,7 +18,7 @@ export default function Login() {
       const response = await fetch('http://localhost:8080/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ username, password })
       });
 
       if (response.ok) {
@@ -27,7 +27,7 @@ export default function Login() {
         navigate('/dashboard');
       } else {
         const data = await response.json();
-        setError(data.message || '登入失敗，請檢查電子郵件與密碼。');
+        setError(data.message || '登入失敗，請檢查帳號與密碼。');
       }
     } catch (err) {
       setError('無法連線至伺服器。');
@@ -57,16 +57,16 @@ export default function Login() {
 
           <form onSubmit={handleLogin} className="space-y-5">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">電子郵件</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">帳號或電子郵件 (Username/Email)</label>
               <div className="relative">
-                <Mail className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
+                <Users className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
                 <input
-                  type="email"
+                  type="text"
                   required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
                   className="w-full pl-11 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all"
-                  placeholder="alice@pms.com"
+                  placeholder="您的登入編號或帳號"
                 />
               </div>
             </div>

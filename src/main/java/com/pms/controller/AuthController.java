@@ -2,6 +2,7 @@ package com.pms.controller;
 
 import com.pms.entity.User;
 import com.pms.repository.UserRepository;
+import com.pms.service.LdapService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -16,6 +17,9 @@ import java.util.Optional;
 public class AuthController {
 
     @Autowired
+    private LdapService ldapService;
+
+    @Autowired
     private UserRepository userRepository;
 
     @Autowired
@@ -23,20 +27,30 @@ public class AuthController {
 
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody Map<String, String> credentials) {
-        String email = credentials.get("email");
+        String loginInput = credentials.get("username");
+        if (loginInput == null) loginInput = credentials.get("email"); 
+        
         String password = credentials.get("password");
 
-        Optional<User> userOpt = userRepository.findByEmail(email);
-        System.out.println("Login attempt for email: " + email + " - Found: " + userOpt.isPresent());
+        // 1. 同時由 username 或 email 尋找使用者
+        Optional<User> userOpt = userRepository.findByUsernameOrEmail(loginInput, loginInput);
         
         if (userOpt.isPresent()) {
             User user = userOpt.get();
+            
+            // 2. 優先嘗試 LDAP 驗證
+            if (ldapService.authenticate(loginInput, password)) {
+                System.out.println("LDAP Auth SUCCESS for: " + loginInput);
+                return ResponseEntity.ok(user);
+            }
+            
+            // 3. 若 LDAP 失敗，改用 DB 密碼驗證
             if (passwordEncoder.matches(password, user.getPassword())) {
-                // 為了簡單起見直接回傳 User (實際情況會回傳 JWT)
+                System.out.println("Database Auth SUCCESS for: " + loginInput);
                 return ResponseEntity.ok(user);
             }
         }
         
-        return ResponseEntity.status(401).body(Map.of("message", "電子郵件或密碼錯誤！"));
+        return ResponseEntity.status(401).body(Map.of("message", "帳號或密碼錯誤。"));
     }
 }

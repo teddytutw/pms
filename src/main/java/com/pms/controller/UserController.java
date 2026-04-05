@@ -39,21 +39,23 @@ public class UserController {
     @PostMapping
     public ResponseEntity<?> createUser(@RequestBody Map<String, String> payload) {
         String email = payload.get("email");
+        String username = payload.get("username");
         String name = payload.get("name");
         String role = payload.get("role");
         String password = payload.get("password");
 
-        if (email == null || email.isBlank() || name == null || name.isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of("message", "姓名與電子郵件為必填欄位"));
+        if (username == null || username.isBlank() || name == null || name.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("message", "帳號與姓名為必填欄位"));
         }
 
-        // 檢查 email 是否重複
-        if (userRepository.findByEmail(email).isPresent()) {
-            return ResponseEntity.badRequest().body(Map.of("message", "此電子郵件已被使用！"));
+        // 檢查 username 是否重複
+        if (userRepository.findByUsername(username).isPresent()) {
+            return ResponseEntity.badRequest().body(Map.of("message", "此帳號已被使用！"));
         }
 
         User newUser = new User();
         newUser.setName(name);
+        newUser.setUsername(username);
         newUser.setEmail(email);
         newUser.setRole(role != null ? role : "MEMBER");
         // 若未提供密碼，則預設為 123456
@@ -70,8 +72,27 @@ public class UserController {
             if (payload.containsKey("name") && !payload.get("name").isBlank()) {
                 user.setName(payload.get("name"));
             }
+            if (payload.containsKey("username") && !payload.get("username").isBlank()) {
+                String newUsername = payload.get("username");
+                if (!newUsername.equals(user.getUsername())) {
+                    if (userRepository.findByUsername(newUsername).isPresent()) {
+                        return ResponseEntity.badRequest().body(Map.of("message", "此帳號已被其他使用者使用！"));
+                    }
+                    user.setUsername(newUsername);
+                }
+            }
             if (payload.containsKey("role")) {
                 user.setRole(payload.get("role"));
+            }
+            if (payload.containsKey("email") && !payload.get("email").isBlank()) {
+                String newEmail = payload.get("email");
+                // 只有在 email 真的有變時才檢查重複
+                if (!newEmail.equals(user.getEmail())) {
+                    if (userRepository.findByEmail(newEmail).isPresent()) {
+                        return ResponseEntity.badRequest().body(Map.of("message", "此電子郵件已被其他使用者使用！"));
+                    }
+                    user.setEmail(newEmail);
+                }
             }
             // 若有提供新密碼，則更新
             if (payload.containsKey("password") && !payload.get("password").isBlank()) {

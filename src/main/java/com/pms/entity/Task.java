@@ -50,9 +50,14 @@ public class Task {
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
+    @Transient
+    private String statusIndicator;
+
     // Getters and Setters
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+    public String getStatusIndicator() { return statusIndicator; }
+    public void setStatusIndicator(String statusIndicator) { this.statusIndicator = statusIndicator; }
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
     public Long getProjectId() { return projectId; }

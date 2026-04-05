@@ -13,7 +13,6 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import jakarta.annotation.PostConstruct;
-import java.io.File;
 import java.io.IOException;
 import java.net.MalformedURLException;
 import java.nio.file.Files;
@@ -104,19 +103,21 @@ public class AttachmentController {
 
     // 下載附件
     @GetMapping("/{id}/download")
-    public ResponseEntity<Resource> downloadAttachment(@PathVariable Long id) {
+    public ResponseEntity<Resource> downloadAttachment(@PathVariable @jakarta.annotation.Nonnull Long id) {
         Attachment attachment = attachmentRepository.findById(id).orElse(null);
-        if (attachment == null) {
+        if (attachment == null || attachment.getFileName() == null) {
             return ResponseEntity.notFound().build();
         }
 
         try {
             Path filePath = this.fileStorageLocation.resolve(attachment.getFileName()).normalize();
             Resource resource = new UrlResource(filePath.toUri());
+            String contentType = attachment.getFileType();
+            if (contentType == null) contentType = "application/octet-stream";
 
             if (resource.exists() && resource.isReadable()) {
                 return ResponseEntity.ok()
-                        .contentType(MediaType.parseMediaType(attachment.getFileType() != null ? attachment.getFileType() : "application/octet-stream"))
+                        .contentType(MediaType.parseMediaType(contentType))
                         .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + attachment.getOriginalFileName() + "\"")
                         .body(resource);
             } else {
@@ -129,7 +130,7 @@ public class AttachmentController {
 
     // 刪除附件
     @DeleteMapping("/{id}")
-    public ResponseEntity<?> deleteAttachment(@PathVariable Long id) {
+    public ResponseEntity<?> deleteAttachment(@PathVariable @jakarta.annotation.Nonnull Long id) {
         return attachmentRepository.findById(id).map(attachment -> {
             try {
                 // 從實體硬碟刪除

@@ -9,6 +9,7 @@ import java.util.List;
 @Repository
 public interface TaskRepository extends JpaRepository<Task, Long> {
     List<Task> findByProjectIdOrderByCreatedAtDesc(Long projectId);
+    List<Task> findByPlannedStartDate(String plannedStartDate);
     @org.springframework.lang.NonNull
     List<Task> findAll();
 }

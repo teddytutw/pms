@@ -20,18 +20,21 @@ interface WBSTask {
   plannedEndDate?: string;
   actualStartDate?: string;
   actualEndDate?: string;
+  statusIndicator?: string;
 }
 
 interface WBSGate {
   id: number;
   phaseName: string;
   gateStatus?: string;
+  statusIndicator?: string;
 }
 
 interface WBSProject {
   id: number;
   name: string;
   currentPhase?: string;
+  statusIndicator?: string;
 }
 
 interface WBSUser {
@@ -89,6 +92,23 @@ const gateStatusConfig: Record<string, { color: string; label: string }> = {
   REJECTED: { color: 'bg-red-100   text-red-700   border-red-200',   label: '✗ 已否決'  },
   PENDING:  { color: 'bg-amber-100 text-amber-700 border-amber-200', label: '⏳ 待審核' },
 };
+
+const indicatorConfig: Record<string, string> = {
+  BLUE:   'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]',
+  GREEN:  'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]',
+  YELLOW: 'bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.5)]',
+  RED:    'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]',
+};
+
+function StatusIndicator({ status }: { status?: string }) {
+  if (!status) return null;
+  return (
+    <div 
+      className={`w-2.5 h-2.5 rounded-full ${indicatorConfig[status] || 'bg-gray-300'} shrink-0`} 
+      title={`Status: ${status}`}
+    />
+  );
+}
 
 // ──────────────────────────────────────────
 //  Inline Edit Input
@@ -228,6 +248,7 @@ export default function WBSView({
                 <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full font-bold shrink-0">
                   {projectTasks.length} 項
                 </span>
+                <StatusIndicator status={project.statusIndicator} />
                 {project.currentPhase && (
                   <span className="text-[10px] bg-white/30 px-2 py-0.5 rounded-full font-black text-white/90 shrink-0">
                     ▶ {project.currentPhase}
@@ -277,6 +298,7 @@ export default function WBSView({
                           </button>
 
                           <NodeTypeTag type="phase" />
+                          <StatusIndicator status={phaseGates[0]?.statusIndicator} />
                           <div className="hidden sm:flex items-center gap-2 shrink-0">
                             <div className="w-16 h-1.5 bg-violet-100 rounded-full overflow-hidden">
                               <div
@@ -346,6 +368,8 @@ export default function WBSView({
                                               {task.title}
                                             </span>
                                           )}
+
+                                          <StatusIndicator status={task.statusIndicator} />
 
                                           {/* Edit btn */}
                                           {editingKey !== taskEditKey && (

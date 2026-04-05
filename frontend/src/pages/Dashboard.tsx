@@ -6,7 +6,7 @@ import 'gantt-task-react/dist/index.css';
 import WBSView from '../components/WBSView';
 
 import {
-  LayoutDashboard, Settings, Search,
+  LayoutDashboard, Settings, Search, Users,
   Menu, X, FolderPlus, BarChart2, LogOut, List
 } from 'lucide-react';
 
@@ -257,6 +257,7 @@ export default function Dashboard() {
 
   const navItems = [
     { name: '儀表板', icon: LayoutDashboard, onClick: () => navigate('/dashboard'), active: true },
+    { name: '團隊/帳號維護', icon: Users, onClick: () => navigate('/team'), active: false },
     { name: '系統設定', icon: Settings, onClick: () => { }, active: false },
   ];
 

@@ -20,5 +20,33 @@ spring:
         format_sql: true
         dialect: org.hibernate.dialect.OracleDialect
 
+  # SMTP Configuration
+  mail:
+    host: 172.16.199.8
+    port: 25
+    properties:
+      mail:
+        smtp:
+          auth: false
+          ssl:
+            enable: false
+        transport:
+          protocol: smtp
+    default-encoding: UTF-8
+
 server:
   port: 8080
+
+# LDAP AD Configuration
+ldap-config:
+  ldaps:
+    - url: ldap://172.16.199.1:389
+      username: wf_ldap
+      password: wf_ldap
+      bases:
+        - ou=CEC,dc=chicony,dc=local
+    - url: ldap://172.16.199.225:389
+      username: wf_ldap
+      password: wf_ldap
+      bases:
+        - ou=User,dc=cem3,dc=com

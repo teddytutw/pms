@@ -28,9 +28,14 @@ public class ProjectPhaseGate {
     @Column(length = 2000)
     private String comments;
 
+    @Transient
+    private String statusIndicator;
+
     // Getters and Setters
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+    public String getStatusIndicator() { return statusIndicator; }
+    public void setStatusIndicator(String statusIndicator) { this.statusIndicator = statusIndicator; }
     public Long getProjectId() { return projectId; }
     public void setProjectId(Long projectId) { this.projectId = projectId; }
     public String getPhaseName() { return phaseName; }

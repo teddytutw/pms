@@ -9,6 +9,7 @@ import Select from 'react-select';
 interface User {
   id: number;
   name: string;
+  username: string;
   email: string;
   role: string;
 }
@@ -26,7 +27,7 @@ interface Project {
 }
 
 // 空白使用者表單
-const emptyForm = { name: '', email: '', role: 'MEMBER', password: '' };
+const emptyForm = { name: '', username: '', email: '', role: 'MEMBER', password: '' };
 
 export default function TeamManagement() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -143,7 +144,7 @@ export default function TeamManagement() {
 
   const startEdit = (user: User) => {
     setEditingUser(user);
-    setFormData({ name: user.name, email: user.email, role: user.role, password: '' });
+    setFormData({ name: user.name, username: user.username || '', email: user.email, role: user.role, password: '' });
     setFormError('');
     setIsCreating(false);
   };
@@ -261,6 +262,16 @@ export default function TeamManagement() {
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <div>
+                      <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5">登入帳號(Username) *</label>
+                      <input
+                        type="text"
+                        value={formData.username}
+                        onChange={e => setFormData({ ...formData, username: e.target.value })}
+                        className="w-full px-4 py-2.5 bg-gray-50 border-2 border-transparent focus:border-indigo-400 rounded-xl outline-none text-sm font-bold transition-all"
+                        placeholder="例：A12345"
+                      />
+                    </div>
+                    <div>
                       <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5">姓名 *</label>
                       <input
                         type="text"
@@ -276,9 +287,8 @@ export default function TeamManagement() {
                         type="email"
                         value={formData.email}
                         onChange={e => setFormData({ ...formData, email: e.target.value })}
-                        disabled={!!editingUser}
                         className="w-full px-4 py-2.5 bg-gray-50 border-2 border-transparent focus:border-indigo-400 rounded-xl outline-none text-sm font-bold transition-all disabled:opacity-50"
-                        placeholder="example@pms.com"
+                        placeholder="example@company.com"
                       />
                     </div>
                     <div>
@@ -329,7 +339,7 @@ export default function TeamManagement() {
                         </div>
                         <div>
                           <p className="font-bold text-gray-900 text-sm flex items-center gap-2">
-                            {user.name}
+                            {user.name} ({user.username})
                             {currentUser?.id === user.id && <span className="text-[10px] bg-green-100 text-green-700 px-1.5 rounded font-black">我</span>}
                           </p>
                           <p className="text-xs text-gray-400">{user.email}</p>

@@ -3,6 +3,8 @@ package com.pms.controller;
 import com.pms.entity.Project;
 import com.pms.repository.ProjectRepository;
 import com.pms.entity.ProjectMember;
+import com.pms.entity.ProjectPhaseGate;
+import com.pms.entity.Task;
 import com.pms.repository.ProjectMemberRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -22,15 +24,35 @@ public class ProjectController {
     @Autowired
     private ProjectMemberRepository memberRepository;
 
+    @Autowired
+    private com.pms.repository.TaskRepository taskRepository;
+
+    @Autowired
+    private com.pms.repository.ProjectPhaseGateRepository phaseRepository;
+
+    @Autowired
+    private com.pms.service.StatusService statusService;
+
     @GetMapping
     public List<Project> getAllProjects() {
-        return projectRepository.findAll();
+        List<Project> projects = projectRepository.findAll();
+        for (Project p : projects) {
+            List<Task> tasks = taskRepository.findByProjectIdOrderByCreatedAtDesc(p.getId());
+            List<ProjectPhaseGate> phases = phaseRepository.findByProjectId(p.getId());
+            statusService.enrichProject(p, phases, tasks);
+        }
+        return projects;
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<Project> getProjectById(@PathVariable long id) {
         return projectRepository.findById(id)
-                .map(ResponseEntity::ok)
+                .map(p -> {
+                    List<Task> tasks = taskRepository.findByProjectIdOrderByCreatedAtDesc(p.getId());
+                    List<ProjectPhaseGate> phases = phaseRepository.findByProjectId(p.getId());
+                    statusService.enrichProject(p, phases, tasks);
+                    return ResponseEntity.ok(p);
+                })
                 .orElse(ResponseEntity.notFound().build());
     }
 

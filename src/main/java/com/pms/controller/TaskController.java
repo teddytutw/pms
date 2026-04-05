@@ -18,9 +18,14 @@ public class TaskController {
     @Autowired
     private TaskRepository taskRepository;
 
+    @Autowired
+    private com.pms.service.StatusService statusService;
+
     @GetMapping("/project/{projectId}")
     public List<Task> getTasksByProject(@PathVariable long projectId) {
-        return taskRepository.findByProjectIdOrderByCreatedAtDesc(projectId);
+        List<Task> tasks = taskRepository.findByProjectIdOrderByCreatedAtDesc(projectId);
+        tasks.forEach(t -> t.setStatusIndicator(statusService.calculateTaskStatus(t)));
+        return tasks;
     }
 
     @PostMapping

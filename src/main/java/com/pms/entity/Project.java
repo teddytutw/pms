@@ -46,6 +46,9 @@ public class Project {
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
+    @Transient
+    private String statusIndicator; // BLUE, GREEN, YELLOW, RED
+
     @PrePersist
     protected void onCreate() {
         this.createdAt = LocalDateTime.now();
@@ -77,4 +80,6 @@ public class Project {
     public void setStatus(String status) { this.status = status; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+    public String getStatusIndicator() { return statusIndicator; }
+    public void setStatusIndicator(String statusIndicator) { this.statusIndicator = statusIndicator; }
 }
