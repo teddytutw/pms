@@ -24,6 +24,9 @@ public class AuthController {
 
     @Autowired
     private PasswordEncoder passwordEncoder;
+    
+    @org.springframework.beans.factory.annotation.Value("${pms.auth.mode:DB}")
+    private String authMode;
 
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody Map<String, String> credentials) {
@@ -38,15 +41,26 @@ public class AuthController {
         if (userOpt.isPresent()) {
             User user = userOpt.get();
             
-            // 2. 優先嘗試 LDAP 驗證
-            if (ldapService.authenticate(loginInput, password)) {
-                System.out.println("LDAP Auth SUCCESS for: " + loginInput);
-                return ResponseEntity.ok(user);
+            boolean ldapAuthenticated = false;
+            boolean dbAuthenticated = false;
+
+            // 1. LDAP 驗證 (僅在 BOTH 或 LDAP 模式下執行)
+            if ("BOTH".equalsIgnoreCase(authMode) || "LDAP".equalsIgnoreCase(authMode)) {
+                if (ldapService.authenticate(loginInput, password)) {
+                    System.out.println("LDAP Auth SUCCESS for: " + loginInput);
+                    ldapAuthenticated = true;
+                }
             }
-            
-            // 3. 若 LDAP 失敗，改用 DB 密碼驗證
-            if (passwordEncoder.matches(password, user.getPassword())) {
-                System.out.println("Database Auth SUCCESS for: " + loginInput);
+
+            // 2. DB 密碼驗證 (僅在 BOTH (若 LDAP 失敗時) 或 DB 模式下執行)
+            if ("DB".equalsIgnoreCase(authMode) || ("BOTH".equalsIgnoreCase(authMode) && !ldapAuthenticated)) {
+                if (passwordEncoder.matches(password, user.getPassword())) {
+                    System.out.println("Database Auth SUCCESS for: " + loginInput);
+                    dbAuthenticated = true;
+                }
+            }
+
+            if (ldapAuthenticated || dbAuthenticated) {
                 return ResponseEntity.ok(user);
             }
         }

@@ -42,8 +42,9 @@ public class TaskNotificationScheduler {
         List<Task> tasks = taskRepository.findByPlannedStartDate(tomorrowStr);
 
         for (Task task : tasks) {
-            if (task.getAssigneeId() != null) {
-                Optional<User> userOpt = userRepository.findById(task.getAssigneeId());
+            Long assigneeId = task.getAssigneeId();
+            if (assigneeId != null) {
+                Optional<User> userOpt = userRepository.findById(assigneeId);
                 if (userOpt.isPresent()) {
                     User user = userOpt.get();
                     if (user.getEmail() != null && !user.getEmail().isEmpty()) {

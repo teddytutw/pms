@@ -103,7 +103,8 @@ public class AttachmentController {
 
     // 下載附件
     @GetMapping("/{id}/download")
-    public ResponseEntity<Resource> downloadAttachment(@PathVariable @jakarta.annotation.Nonnull Long id) {
+    public ResponseEntity<Resource> downloadAttachment(@PathVariable Long id) {
+        if (id == null) return ResponseEntity.badRequest().build();
         Attachment attachment = attachmentRepository.findById(id).orElse(null);
         if (attachment == null || attachment.getFileName() == null) {
             return ResponseEntity.notFound().build();
@@ -111,7 +112,8 @@ public class AttachmentController {
 
         try {
             Path filePath = this.fileStorageLocation.resolve(attachment.getFileName()).normalize();
-            Resource resource = new UrlResource(filePath.toUri());
+            java.net.URI fileUri = filePath.toUri();
+            Resource resource = new UrlResource(java.util.Objects.requireNonNull(fileUri));
             String contentType = attachment.getFileType();
             if (contentType == null) contentType = "application/octet-stream";
 
@@ -130,7 +132,8 @@ public class AttachmentController {
 
     // 刪除附件
     @DeleteMapping("/{id}")
-    public ResponseEntity<?> deleteAttachment(@PathVariable @jakarta.annotation.Nonnull Long id) {
+    public ResponseEntity<?> deleteAttachment(@PathVariable Long id) {
+        if (id == null) return ResponseEntity.badRequest().build();
         return attachmentRepository.findById(id).map(attachment -> {
             try {
                 // 從實體硬碟刪除
