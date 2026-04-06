@@ -398,7 +398,7 @@ export default function EntityDetails() {
       </div>
 
       {/* ── Content ── */}
-      <main className="flex-1 p-6 overflow-auto">
+      <main className="flex-1 p-6 pb-48 overflow-auto">
         <div className="max-w-4xl mx-auto space-y-5">
 
           {/* ═══ DETAILS TAB ═══ */}
@@ -450,6 +450,8 @@ export default function EntityDetails() {
                     isClearable
                     placeholder="選擇負責人..."
                     styles={{ control: (b) => ({ ...b, borderColor: '#e5e7eb', minHeight: '38px', fontSize: '14px' }) }}
+                    menuPosition="fixed"
+                    menuPlacement="auto"
                   />
                 </div>
 
@@ -463,6 +465,8 @@ export default function EntityDetails() {
                     onChange={opts => setForm({ ...form, responsibleRoles: opts.map(o => o.value) })}
                     placeholder="選擇負責角色..."
                     styles={{ control: (b) => ({ ...b, borderColor: '#e5e7eb', fontSize: '14px' }) }}
+                    menuPosition="fixed"
+                    menuPlacement="auto"
                   />
                 </div>
 
@@ -602,6 +606,8 @@ export default function EntityDetails() {
                         onChange={o => setRoleMembers(prev => ({ ...prev, [role]: o?.value ? Number(o.value) : '' }))}
                         placeholder="選擇成員..."
                         styles={{ control: (b) => ({ ...b, borderColor: '#e5e7eb', fontSize: '14px' }) }}
+                        menuPosition="fixed"
+                        menuPlacement="auto"
                       />
                     </div>
                   </div>
