@@ -66,9 +66,13 @@ export default function Dashboard() {
           const p = await projectsRes.json();
           setProjects(p);
           if (p.length > 0) {
-            const lastId = p[p.length - 1].id;
-            setSelectedProjectId(lastId);
-            fetchProjectDetails(lastId);
+            const savedId = sessionStorage.getItem('dashboard_selectedProjectId');
+            let initialId = p[p.length - 1].id;
+            if (savedId && p.some((project: any) => project.id === Number(savedId))) {
+              initialId = Number(savedId);
+            }
+            setSelectedProjectId(initialId);
+            fetchProjectDetails(initialId);
           }
         }
       } catch (err) { console.error(err); }
@@ -89,7 +93,10 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    if (selectedProjectId) fetchProjectDetails(selectedProjectId);
+    if (selectedProjectId) {
+      fetchProjectDetails(selectedProjectId);
+      sessionStorage.setItem('dashboard_selectedProjectId', String(selectedProjectId));
+    }
   }, [selectedProjectId]);
 
   // Task moved via DnD — use lightweight PATCH
