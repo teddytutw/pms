@@ -532,6 +532,8 @@ export default function Dashboard() {
                       value={projects.map(p => ({ value: p.id, label: p.name })).find(o => o.value === newTask.projectId) ?? null}
                       onChange={o => setNewTask({ ...newTask, projectId: o?.value ?? null })}
                       placeholder="選擇專案..."
+                      menuPosition="fixed"
+                      menuPlacement="auto"
                     />
                   </div>
                   <div>
@@ -540,6 +542,8 @@ export default function Dashboard() {
                       options={['Initiation', 'Planning', 'Execution', 'Monitoring', 'Closing'].map(p => ({ value: p, label: p }))}
                       value={{ value: newTask.phase, label: newTask.phase }}
                       onChange={o => setNewTask({ ...newTask, phase: o?.value || 'Initiation' })}
+                      menuPosition="fixed"
+                      menuPlacement="auto"
                     />
                   </div>
                 </div>
@@ -550,6 +554,8 @@ export default function Dashboard() {
                     onChange={o => setNewTask({ ...newTask, assigneeId: o?.value as any })}
                     isClearable
                     placeholder="選擇成員..."
+                    menuPosition="fixed"
+                    menuPlacement="auto"
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
@@ -603,6 +609,8 @@ export default function Dashboard() {
                       options={users.map(u => ({ value: u.id, label: u.name }))}
                       value={users.map(u => ({ value: u.id, label: u.name })).find(x => x.value === newProject.ownerId)}
                       onChange={o => setNewProject({ ...newProject, ownerId: o?.value as any })}
+                      menuPosition="fixed"
+                      menuPlacement="auto"
                     />
                   </div>
                 </div>
