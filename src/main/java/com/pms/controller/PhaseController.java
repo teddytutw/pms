@@ -74,6 +74,7 @@ public class PhaseController {
             if (phaseDetails.getActualEndDate() != null) phase.setActualEndDate(phaseDetails.getActualEndDate());
             if (phaseDetails.getActualDuration() != null) phase.setActualDuration(phaseDetails.getActualDuration());
             if (phaseDetails.getComments() != null) phase.setComments(phaseDetails.getComments());
+            @SuppressWarnings("null")
             ProjectPhaseGate saved = phaseRepository.save(phase);
             return ResponseEntity.ok(saved);
         }).orElse(ResponseEntity.notFound().build());

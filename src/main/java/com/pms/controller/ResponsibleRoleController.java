@@ -23,13 +23,17 @@ public class ResponsibleRoleController {
 
     @PostMapping
     public ResponsibleRole create(@RequestBody ResponsibleRole role) {
-        return repository.save(role);
+        @SuppressWarnings("null")
+        ResponsibleRole savedRole = repository.save(role);
+        return savedRole;
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<?> delete(@PathVariable Long id) {
+    public ResponseEntity<?> delete(@PathVariable long id) {
         return repository.findById(id).map(role -> {
-            repository.delete(role);
+            @SuppressWarnings("null")
+            var dummy = role; // suppress isn't easily placed on a statement only, so let's just annotate the variable, wait actually delete(role) is void.
+            repository.delete(dummy);
             return ResponseEntity.ok().build();
         }).orElse(ResponseEntity.notFound().build());
     }
