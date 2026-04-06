@@ -9,6 +9,15 @@ public class ProjectPhaseGate {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @Column(name = "activity_type", length = 20)
+    private String activityType = "PHASE";
+    
+    @Column(name = "owner_id")
+    private Long ownerId;
+
+    @Column(name = "responsible_roles", length = 500)
+    private String responsibleRoles;
     
     @Column(name = "project_id", nullable = false)
     private Long projectId;
@@ -24,6 +33,24 @@ public class ProjectPhaseGate {
     
     @Column(name = "approval_date")
     private LocalDateTime approvalDate;
+
+    @Column(name = "planned_start_date", length = 50)
+    private String plannedStartDate;
+
+    @Column(name = "planned_end_date", length = 50)
+    private String plannedEndDate;
+
+    @Column(name = "actual_start_date", length = 50)
+    private String actualStartDate;
+
+    @Column(name = "actual_end_date", length = 50)
+    private String actualEndDate;
+
+    @Column(name = "planned_duration", length = 50)
+    private String plannedDuration;
+
+    @Column(name = "actual_duration", length = 50)
+    private String actualDuration;
     
     @Column(length = 2000)
     private String comments;
@@ -48,4 +75,23 @@ public class ProjectPhaseGate {
     public void setApprovalDate(LocalDateTime approvalDate) { this.approvalDate = approvalDate; }
     public String getComments() { return comments; }
     public void setComments(String comments) { this.comments = comments; }
+
+    public String getActivityType() { return activityType; }
+    public void setActivityType(String activityType) { this.activityType = activityType; }
+    public Long getOwnerId() { return ownerId; }
+    public void setOwnerId(Long ownerId) { this.ownerId = ownerId; }
+    public String getResponsibleRoles() { return responsibleRoles; }
+    public void setResponsibleRoles(String responsibleRoles) { this.responsibleRoles = responsibleRoles; }
+    public String getPlannedStartDate() { return plannedStartDate; }
+    public void setPlannedStartDate(String plannedStartDate) { this.plannedStartDate = plannedStartDate; }
+    public String getPlannedEndDate() { return plannedEndDate; }
+    public void setPlannedEndDate(String plannedEndDate) { this.plannedEndDate = plannedEndDate; }
+    public String getActualStartDate() { return actualStartDate; }
+    public void setActualStartDate(String actualStartDate) { this.actualStartDate = actualStartDate; }
+    public String getActualEndDate() { return actualEndDate; }
+    public void setActualEndDate(String actualEndDate) { this.actualEndDate = actualEndDate; }
+    public String getPlannedDuration() { return plannedDuration; }
+    public void setPlannedDuration(String plannedDuration) { this.plannedDuration = plannedDuration; }
+    public String getActualDuration() { return actualDuration; }
+    public void setActualDuration(String actualDuration) { this.actualDuration = actualDuration; }
 }

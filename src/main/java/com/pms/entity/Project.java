@@ -20,6 +20,27 @@ public class Project {
     @Column(name = "owner_id")
     private Long ownerId; // 專案負責人 (Owner)
 
+    @Column(name = "activity_type", length = 20)
+    private String activityType = "PROJECT";
+
+    @Column(name = "responsible_roles", length = 500)
+    private String responsibleRoles; // 多選下拉 (多個 role name 以逗號分隔)
+
+    @Column(name = "planned_duration", length = 50)
+    private String plannedDuration;
+
+    @Column(name = "actual_duration", length = 50)
+    private String actualDuration;
+
+    // 專案成員 (Project Members) - 各角色指派的使用者 ID
+    @Column(name = "bpm_user_id") private Long bpmUserId;
+    @Column(name = "mipm_user_id") private Long mipmUserId;
+    @Column(name = "sqe_user_id") private Long sqeUserId;
+    @Column(name = "eng_user_id") private Long engUserId;
+    @Column(name = "pur_user_id") private Long purUserId;
+    @Column(name = "dqa_user_id") private Long dqaUserId;
+    @Column(name = "erd_user_id") private Long erdUserId;
+
     @Column(name = "current_phase", length = 50)
     private String currentPhase = "Initiation"; // 預設為啟動階段
 
@@ -82,4 +103,28 @@ public class Project {
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public String getStatusIndicator() { return statusIndicator; }
     public void setStatusIndicator(String statusIndicator) { this.statusIndicator = statusIndicator; }
+
+    public String getActivityType() { return activityType; }
+    public void setActivityType(String activityType) { this.activityType = activityType; }
+    public String getResponsibleRoles() { return responsibleRoles; }
+    public void setResponsibleRoles(String responsibleRoles) { this.responsibleRoles = responsibleRoles; }
+    public String getPlannedDuration() { return plannedDuration; }
+    public void setPlannedDuration(String plannedDuration) { this.plannedDuration = plannedDuration; }
+    public String getActualDuration() { return actualDuration; }
+    public void setActualDuration(String actualDuration) { this.actualDuration = actualDuration; }
+
+    public Long getBpmUserId() { return bpmUserId; }
+    public void setBpmUserId(Long bpmUserId) { this.bpmUserId = bpmUserId; }
+    public Long getMipmUserId() { return mipmUserId; }
+    public void setMipmUserId(Long mipmUserId) { this.mipmUserId = mipmUserId; }
+    public Long getSqeUserId() { return sqeUserId; }
+    public void setSqeUserId(Long sqeUserId) { this.sqeUserId = sqeUserId; }
+    public Long getEngUserId() { return engUserId; }
+    public void setEngUserId(Long engUserId) { this.engUserId = engUserId; }
+    public Long getPurUserId() { return purUserId; }
+    public void setPurUserId(Long purUserId) { this.purUserId = purUserId; }
+    public Long getDqaUserId() { return dqaUserId; }
+    public void setDqaUserId(Long dqaUserId) { this.dqaUserId = dqaUserId; }
+    public Long getErdUserId() { return erdUserId; }
+    public void setErdUserId(Long erdUserId) { this.erdUserId = erdUserId; }
 }

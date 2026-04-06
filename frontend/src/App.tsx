@@ -4,6 +4,7 @@ import Dashboard from './pages/Dashboard';
 import Login from './pages/Login';
 import EntityDetails from './pages/EntityDetails';
 import TeamManagement from './pages/TeamManagement';
+import RoleManagement from './pages/RoleManagement';
 
 // 簡單的路由守衛組件
 const PrivateRoute = ({ children }: { children: JSX.Element }) => {
@@ -45,6 +46,14 @@ function App() {
           element={
             <PrivateRoute>
               <TeamManagement />
+            </PrivateRoute>
+          } 
+        />
+        <Route 
+          path="/roles" 
+          element={
+            <PrivateRoute>
+              <RoleManagement />
             </PrivateRoute>
           } 
         />

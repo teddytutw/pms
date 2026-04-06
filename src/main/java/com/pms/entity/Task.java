@@ -11,6 +11,15 @@ public class Task {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "activity_type", length = 20)
+    private String activityType = "TASK";
+
+    @Column(name = "owner_id")
+    private Long ownerId;
+
+    @Column(name = "responsible_roles", length = 500)
+    private String responsibleRoles;
+
     @Column(nullable = false, length = 150)
     private String title;
 
@@ -37,6 +46,12 @@ public class Task {
 
     @Column(name = "actual_end_date", length = 50)
     private String actualEndDate;
+
+    @Column(name = "planned_duration", length = 50)
+    private String plannedDuration;
+
+    @Column(name = "actual_duration", length = 50)
+    private String actualDuration;
 
     @Column(name = "estimated_hours")
     private Integer estimatedHours; // 預估工時
@@ -84,4 +99,15 @@ public class Task {
     public void setPhase(String phase) { this.phase = phase; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+
+    public String getActivityType() { return activityType; }
+    public void setActivityType(String activityType) { this.activityType = activityType; }
+    public Long getOwnerId() { return ownerId; }
+    public void setOwnerId(Long ownerId) { this.ownerId = ownerId; }
+    public String getResponsibleRoles() { return responsibleRoles; }
+    public void setResponsibleRoles(String responsibleRoles) { this.responsibleRoles = responsibleRoles; }
+    public String getPlannedDuration() { return plannedDuration; }
+    public void setPlannedDuration(String plannedDuration) { this.plannedDuration = plannedDuration; }
+    public String getActualDuration() { return actualDuration; }
+    public void setActualDuration(String actualDuration) { this.actualDuration = actualDuration; }
 }

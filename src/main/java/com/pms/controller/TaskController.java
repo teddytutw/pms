@@ -28,6 +28,16 @@ public class TaskController {
         return tasks;
     }
 
+    @GetMapping("/{id}")
+    public ResponseEntity<Task> getTaskById(@PathVariable long id) {
+        return taskRepository.findById(id)
+                .map(task -> {
+                    task.setStatusIndicator(statusService.calculateTaskStatus(task));
+                    return ResponseEntity.ok(task);
+                })
+                .orElse(ResponseEntity.notFound().build());
+    }
+
     @PostMapping
     public Task createTask(@RequestBody Task task) {
         if (task.getStatus() == null || task.getStatus().isEmpty()) {
@@ -44,10 +54,14 @@ public class TaskController {
             if (taskDetails.getStatus() != null) task.setStatus(taskDetails.getStatus());
             if (taskDetails.getProjectId() != null) task.setProjectId(taskDetails.getProjectId());
             if (taskDetails.getAssigneeId() != null) task.setAssigneeId(taskDetails.getAssigneeId());
+            if (taskDetails.getOwnerId() != null) task.setOwnerId(taskDetails.getOwnerId());
+            if (taskDetails.getResponsibleRoles() != null) task.setResponsibleRoles(taskDetails.getResponsibleRoles());
             if (taskDetails.getPlannedStartDate() != null) task.setPlannedStartDate(taskDetails.getPlannedStartDate());
             if (taskDetails.getPlannedEndDate() != null) task.setPlannedEndDate(taskDetails.getPlannedEndDate());
+            if (taskDetails.getPlannedDuration() != null) task.setPlannedDuration(taskDetails.getPlannedDuration());
             if (taskDetails.getActualStartDate() != null) task.setActualStartDate(taskDetails.getActualStartDate());
             if (taskDetails.getActualEndDate() != null) task.setActualEndDate(taskDetails.getActualEndDate());
+            if (taskDetails.getActualDuration() != null) task.setActualDuration(taskDetails.getActualDuration());
             if (taskDetails.getPhase() != null) task.setPhase(taskDetails.getPhase());
             if (taskDetails.getEstimatedHours() != null) task.setEstimatedHours(taskDetails.getEstimatedHours());
             if (taskDetails.getActualHours() != null) task.setActualHours(taskDetails.getActualHours());

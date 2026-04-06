@@ -70,10 +70,23 @@ public class ProjectController {
             project.setName(projectDetails.getName());
             project.setDescription(projectDetails.getDescription());
             project.setOwnerId(projectDetails.getOwnerId());
+            if (projectDetails.getResponsibleRoles() != null) project.setResponsibleRoles(projectDetails.getResponsibleRoles());
             project.setPlannedStartDate(projectDetails.getPlannedStartDate());
             project.setPlannedEndDate(projectDetails.getPlannedEndDate());
+            if (projectDetails.getPlannedDuration() != null) project.setPlannedDuration(projectDetails.getPlannedDuration());
+            project.setActualStartDate(projectDetails.getActualStartDate());
+            project.setActualEndDate(projectDetails.getActualEndDate());
+            if (projectDetails.getActualDuration() != null) project.setActualDuration(projectDetails.getActualDuration());
             project.setBudget(projectDetails.getBudget());
-            project.setStatus(projectDetails.getStatus());
+            if (projectDetails.getStatus() != null) project.setStatus(projectDetails.getStatus());
+            // Project Members by role
+            project.setBpmUserId(projectDetails.getBpmUserId());
+            project.setMipmUserId(projectDetails.getMipmUserId());
+            project.setSqeUserId(projectDetails.getSqeUserId());
+            project.setEngUserId(projectDetails.getEngUserId());
+            project.setPurUserId(projectDetails.getPurUserId());
+            project.setDqaUserId(projectDetails.getDqaUserId());
+            project.setErdUserId(projectDetails.getErdUserId());
             return ResponseEntity.ok(projectRepository.save(project));
         }).orElse(ResponseEntity.notFound().build());
     }
