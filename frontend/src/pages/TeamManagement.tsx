@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Users, UserPlus, Trash2, ArrowLeft, ShieldCheck, 
-  Edit2, X, Check, KeyRound, AlertCircle
+  Edit2, X, Check, KeyRound, AlertCircle, Upload, Search, Download, CheckCircle, ArrowUp, ArrowDown
 } from 'lucide-react';
 import Select from 'react-select';
+import * as xlsx from 'xlsx';
 
 interface User {
   id: number;
@@ -12,6 +13,11 @@ interface User {
   username: string;
   email: string;
   role: string;
+  bu?: string;
+  factory?: string;
+  jobRole?: string;
+  dept?: string;
+  enabled?: boolean;
 }
 
 interface ProjectMember {
@@ -26,8 +32,7 @@ interface Project {
   ownerId: number;
 }
 
-// 空白使用者表單
-const emptyForm = { name: '', username: '', email: '', role: 'MEMBER', password: '' };
+const emptyForm = { name: '', username: '', email: '', role: 'MEMBER', password: '', bu: '', factory: '', jobRole: '', dept: '', enabled: true };
 
 export default function TeamManagement() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -37,13 +42,22 @@ export default function TeamManagement() {
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const navigate = useNavigate();
 
-  // 使用者 CRUD 的狀態
+  // User CRUD states
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [formData, setFormData] = useState(emptyForm);
   const [formError, setFormError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState<'system' | 'project'>('system');
+
+  // Search & Sort states
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortConfig, setSortConfig] = useState<{ key: keyof User; direction: 'asc' | 'desc' } | null>(null);
+
+  // Import states
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importLogs, setImportLogs] = useState<{status: 'success'|'error', msg: string}[] | null>(null);
 
   useEffect(() => {
     const userJson = localStorage.getItem('currentUser');
@@ -55,8 +69,8 @@ export default function TeamManagement() {
   const fetchData = async () => {
     try {
       const [projRes, userRes] = await Promise.all([
-        fetch('http://localhost:8080/api/projects'),
-        fetch('http://localhost:8080/api/users')
+        fetch((import.meta as any).env.BASE_URL + 'api/projects'),
+        fetch((import.meta as any).env.BASE_URL + 'api/users')
       ]);
       if (projRes.ok) {
         const pData = await projRes.json();
@@ -69,7 +83,7 @@ export default function TeamManagement() {
 
   useEffect(() => {
     if (selectedProjectId) {
-      fetch(`http://localhost:8080/api/projects/${selectedProjectId}/members`)
+      fetch((import.meta as any).env.BASE_URL + `api/projects/${selectedProjectId}/members`)
         .then(res => res.json())
         .then(setTeamMembers)
         .catch(console.error);
@@ -79,7 +93,6 @@ export default function TeamManagement() {
   const currentProject = projects.find(p => p.id === selectedProjectId);
   const isOwner = currentUser && currentProject && currentProject.ownerId === currentUser.id;
 
-  // === 系統使用者 CRUD ===
   const handleCreateUser = async () => {
     setFormError('');
     if (!formData.name.trim() || !formData.email.trim()) {
@@ -87,7 +100,7 @@ export default function TeamManagement() {
     }
     setIsSubmitting(true);
     try {
-      const res = await fetch('http://localhost:8080/api/users', {
+      const res = await fetch((import.meta as any).env.BASE_URL + 'api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)
@@ -110,7 +123,7 @@ export default function TeamManagement() {
     setFormError('');
     setIsSubmitting(true);
     try {
-      const res = await fetch(`http://localhost:8080/api/users/${editingUser.id}`, {
+      const res = await fetch((import.meta as any).env.BASE_URL + `api/users/${editingUser.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)
@@ -118,7 +131,6 @@ export default function TeamManagement() {
       if (res.ok) {
         const updated = await res.json();
         setAllUsers(allUsers.map(u => u.id === updated.id ? updated : u));
-        // 若更新的是當前登入者，同步 localStorage
         const stored = localStorage.getItem('currentUser');
         if (stored && JSON.parse(stored).id === updated.id) {
           localStorage.setItem('currentUser', JSON.stringify(updated));
@@ -137,14 +149,25 @@ export default function TeamManagement() {
   const handleDeleteUser = async (userId: number, userName: string) => {
     if (!confirm(`確定要從系統中永久刪除使用者「${userName}」嗎？\n此操作無法復原！`)) return;
     try {
-      const res = await fetch(`http://localhost:8080/api/users/${userId}`, { method: 'DELETE' });
+      const res = await fetch((import.meta as any).env.BASE_URL + `api/users/${userId}`, { method: 'DELETE' });
       if (res.ok) setAllUsers(allUsers.filter(u => u.id !== userId));
     } catch (err) { console.error(err); }
   };
 
   const startEdit = (user: User) => {
     setEditingUser(user);
-    setFormData({ name: user.name, username: user.username || '', email: user.email, role: user.role, password: '' });
+    setFormData({ 
+      name: user.name, 
+      username: user.username || '', 
+      email: user.email, 
+      role: user.role, 
+      password: '',
+      bu: user.bu || '',
+      factory: user.factory || '',
+      jobRole: user.jobRole || '',
+      dept: user.dept || '',
+      enabled: user.enabled !== false
+    });
     setFormError('');
     setIsCreating(false);
   };
@@ -156,11 +179,10 @@ export default function TeamManagement() {
     setFormError('');
   };
 
-  // === 專案成員管理 ===
   const handleAddMember = async (userId: number) => {
     if (!selectedProjectId) return;
     try {
-      const res = await fetch(`http://localhost:8080/api/projects/${selectedProjectId}/members`, {
+      const res = await fetch((import.meta as any).env.BASE_URL + `api/projects/${selectedProjectId}/members`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, projectRole: 'Member' })
@@ -172,13 +194,127 @@ export default function TeamManagement() {
   const handleRemoveMember = async (userId: number) => {
     if (!selectedProjectId || !confirm('確定要將此成員從專案中移除嗎？')) return;
     try {
-      const res = await fetch(`http://localhost:8080/api/projects/${selectedProjectId}/members/${userId}`, { method: 'DELETE' });
+      const res = await fetch((import.meta as any).env.BASE_URL + `api/projects/${selectedProjectId}/members/${userId}`, { method: 'DELETE' });
       if (res.ok) setTeamMembers(teamMembers.filter(m => m.userId !== userId));
     } catch (err) { console.error(err); }
   };
 
+  // === Excel Batch Import ===
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsImporting(true);
+    setImportLogs(null);
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = xlsx.read(data);
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows: any[] = xlsx.utils.sheet_to_json(sheet, { header: 1 });
+      
+      const logs: {status: 'success'|'error', msg: string}[] = [];
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        if (!row || row.length === 0) continue; 
+        
+        const payload = {
+          username: String(row[0] || '').trim(),
+          name: String(row[1] || '').trim(),
+          email: String(row[2] || '').trim(),
+          bu: String(row[3] || '').trim(),
+          factory: String(row[4] || '').trim(),
+          jobRole: String(row[5] || '').trim(),
+          dept: String(row[6] || '').trim(),
+          role: String(row[7] || '').trim() || 'MEMBER',
+          password: String(row[8] || '').trim(),
+          enabled: row[9] !== undefined ? String(row[9]).toLowerCase() !== 'false' : true
+        };
+        
+        if (!payload.username || !payload.name) {
+          logs.push({ status: 'error', msg: `第 ${i+1} 列：帳號與姓名為必填，已略過` });
+          continue;
+        }
+
+        try {
+          const res = await fetch((import.meta as any).env.BASE_URL + 'api/users', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+          });
+          if (res.ok) {
+            logs.push({ status: 'success', msg: `成功匯入：${payload.username} (${payload.name})` });
+          } else {
+            const err = await res.json();
+            logs.push({ status: 'error', msg: `匯入失敗 [${payload.username}]：${err.message || '未知錯誤'}` });
+          }
+        } catch (err) {
+          logs.push({ status: 'error', msg: `連線錯誤 [${payload.username}]` });
+        }
+      }
+      setImportLogs(logs);
+      fetchData(); 
+    } catch (err) {
+      alert('處理 Excel 發生錯誤，請確認檔案格式是否正確。');
+    }
+    setIsImporting(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleExportExcel = () => {
+    // 匯出當前畫面上的過濾與排序結果
+    const header = ['登入帳號', '姓名', '電子郵件', 'BU', 'Factory', 'Role', 'Dept', '系統角色', '密碼', 'enable'];
+    const data = filteredAndSortedUsers.map(u => [
+      u.username,
+      u.name,
+      u.email,
+      u.bu || '',
+      u.factory || '',
+      u.jobRole || '',
+      u.dept || '',
+      u.role || 'MEMBER',
+      '', // 為了安全性，不匯出資料庫內的雜湊密碼
+      u.enabled !== false ? 'true' : 'false'
+    ]);
+    
+    data.unshift(header);
+    
+    const ws = xlsx.utils.aoa_to_sheet(data);
+    const wb = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(wb, ws, "System Users");
+    
+    // 觸發瀏覽器下載
+    xlsx.writeFile(wb, "system_users_export.xlsx");
+  };
+
+  // === Filtering & Sorting ===
+  const requestSort = (key: keyof User) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const filteredAndSortedUsers = [...allUsers]
+    .filter(u => {
+      const term = searchTerm.trim().toLowerCase();
+      if (term === '' || term === '*') return true;
+      
+      return u.name.toLowerCase().includes(term) ||
+             (u.username && u.username.toLowerCase().includes(term)) ||
+             (u.email && u.email.toLowerCase().includes(term)) ||
+             (u.dept && u.dept.toLowerCase().includes(term)) ||
+             (u.bu && u.bu.toLowerCase().includes(term));
+    })
+    .sort((a, b) => {
+      if (!sortConfig) return 0;
+      const { key, direction } = sortConfig;
+      const aVal = String(a[key] || '').toLowerCase();
+      const bVal = String(b[key] || '').toLowerCase();
+      if (aVal < bVal) return direction === 'asc' ? -1 : 1;
+      if (aVal > bVal) return direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+
   const memberOptions = allUsers
-    .filter(u => !teamMembers.some(m => m.userId === u.id))
+    .filter(u => u.enabled !== false && !teamMembers.some(m => m.userId === u.id))
     .map(u => ({ value: u.id, label: `${u.name} (${u.email})` }));
 
   const roleOptions = [
@@ -186,9 +322,18 @@ export default function TeamManagement() {
     { value: 'MEMBER', label: '一般成員 (MEMBER)' },
   ];
 
+  const enableOptions = [
+    { value: true, label: '啟用 (Enabled)' },
+    { value: false, label: '停用 (Disabled)' },
+  ];
+
+  const SortIcon = ({ columnKey }: { columnKey: keyof User }) => {
+    if (!sortConfig || sortConfig.key !== columnKey) return <ArrowDown className="w-3 h-3 opacity-20 ml-1 inline-block" />;
+    return sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600 ml-1 inline-block" /> : <ArrowDown className="w-3 h-3 text-indigo-600 ml-1 inline-block" />;
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
-      {/* Header */}
       <header className="h-16 bg-white border-b flex items-center px-6 justify-between shrink-0 sticky top-0 z-10 shadow-sm">
         <div className="flex items-center">
           <button onClick={() => navigate('/dashboard')} className="p-2 mr-4 hover:bg-gray-100 rounded-lg text-gray-500 transition-colors">
@@ -210,9 +355,8 @@ export default function TeamManagement() {
         </div>
       </header>
 
-      {/* Tabs */}
       <div className="bg-white border-b px-6">
-        <div className="flex space-x-1 max-w-5xl mx-auto">
+        <div className="flex space-x-1 max-w-[1400px] mx-auto">
           {[
             { key: 'system', label: '系統使用者管理', icon: Users },
             { key: 'project', label: '專案成員管理', icon: ShieldCheck },
@@ -229,22 +373,46 @@ export default function TeamManagement() {
       </div>
 
       <main className="flex-1 p-6 overflow-auto">
-        <div className="max-w-5xl mx-auto space-y-6">
+        <div className="max-w-[1400px] mx-auto space-y-6">
 
           {/* === TAB：系統使用者管理 === */}
           {activeTab === 'system' && (
             <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <div>
-                  <h2 className="text-lg font-black text-gray-900">系統使用者清單</h2>
-                  <p className="text-sm text-gray-400 mt-0.5">在此建立、修改或刪除系統帳號，完成後即可在專案中指派該人員。</p>
+              <div className="flex justify-between items-center bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+                <div className="flex items-center">
+                  <div className="relative">
+                    <Search className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
+                    <input 
+                      type="text" 
+                      placeholder="搜尋姓名、帳號、部門、BU..." 
+                      value={searchTerm}
+                      onChange={e => setSearchTerm(e.target.value)}
+                      className="pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-indigo-400 focus:bg-white text-sm font-bold w-64 transition-all"
+                    />
+                  </div>
                 </div>
-                <button
-                  onClick={() => { setIsCreating(true); setEditingUser(null); setFormData(emptyForm); setFormError(''); }}
-                  className="flex items-center px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all active:scale-95"
-                >
-                  <UserPlus className="w-4 h-4 mr-2" /> 建立新使用者
-                </button>
+                <div className="flex gap-3">
+                  <input type="file" accept=".xlsx, .xls" ref={fileInputRef} className="hidden" onChange={handleFileUpload} />
+                  <button
+                    onClick={handleExportExcel}
+                    className="flex items-center px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-xl font-bold hover:bg-gray-50 transition-all text-sm shadow-sm"
+                  >
+                    <Download className="w-4 h-4 mr-2" /> 匯出清單
+                  </button>
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isImporting}
+                    className="flex items-center px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-xl font-bold hover:bg-gray-50 transition-all text-sm shadow-sm"
+                  >
+                    <Upload className="w-4 h-4 mr-2" /> {isImporting ? '處理中...' : '批次匯入帳號'}
+                  </button>
+                  <button
+                    onClick={() => { setIsCreating(true); setEditingUser(null); setFormData(emptyForm); setFormError(''); }}
+                    className="flex items-center px-5 py-2 flex-shrink-0 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all active:scale-95 text-sm"
+                  >
+                    <UserPlus className="w-4 h-4 mr-2" /> 建立系統帳號
+                  </button>
+                </div>
               </div>
 
               {/* 新增 / 編輯表單 */}
@@ -260,56 +428,51 @@ export default function TeamManagement() {
                     </div>
                   )}
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-4">
                     <div>
-                      <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5">登入帳號(Username) *</label>
-                      <input
-                        type="text"
-                        value={formData.username}
-                        onChange={e => setFormData({ ...formData, username: e.target.value })}
-                        className="w-full px-4 py-2.5 bg-gray-50 border-2 border-transparent focus:border-indigo-400 rounded-xl outline-none text-sm font-bold transition-all"
-                        placeholder="例：A12345"
-                      />
+                      <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5">登入帳號 *</label>
+                      <input type="text" value={formData.username} onChange={e => setFormData({ ...formData, username: e.target.value })} className="w-full px-4 py-2 bg-gray-50 border-2 border-transparent focus:border-indigo-400 rounded-xl outline-none text-sm font-bold" />
                     </div>
                     <div>
                       <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5">姓名 *</label>
-                      <input
-                        type="text"
-                        value={formData.name}
-                        onChange={e => setFormData({ ...formData, name: e.target.value })}
-                        className="w-full px-4 py-2.5 bg-gray-50 border-2 border-transparent focus:border-indigo-400 rounded-xl outline-none text-sm font-bold transition-all"
-                        placeholder="例：王小明"
-                      />
+                      <input type="text" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} className="w-full px-4 py-2 bg-gray-50 border-2 border-transparent focus:border-indigo-400 rounded-xl outline-none text-sm font-bold" />
                     </div>
-                    <div>
+                    <div className="lg:col-span-2">
                       <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5">電子郵件 *</label>
-                      <input
-                        type="email"
-                        value={formData.email}
-                        onChange={e => setFormData({ ...formData, email: e.target.value })}
-                        className="w-full px-4 py-2.5 bg-gray-50 border-2 border-transparent focus:border-indigo-400 rounded-xl outline-none text-sm font-bold transition-all disabled:opacity-50"
-                        placeholder="example@company.com"
-                      />
+                      <input type="email" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} className="w-full px-4 py-2 bg-gray-50 border-2 border-transparent focus:border-indigo-400 rounded-xl outline-none text-sm font-bold disabled:opacity-50" />
+                    </div>
+                    
+                    {/* Organization Fields */}
+                    <div>
+                      <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5">BU (Max 10)</label>
+                      <input type="text" maxLength={10} value={formData.bu} onChange={e => setFormData({ ...formData, bu: e.target.value })} className="w-full px-4 py-2 bg-gray-50 border-2 border-transparent focus:border-indigo-400 rounded-xl outline-none text-sm font-bold" />
                     </div>
                     <div>
-                      <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5">系統角色</label>
-                      <Select
-                        options={roleOptions}
-                        value={roleOptions.find(o => o.value === formData.role)}
-                        onChange={o => setFormData({ ...formData, role: o?.value || 'MEMBER' })}
-                      />
+                      <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5">Factory (Max 10)</label>
+                      <input type="text" maxLength={10} value={formData.factory} onChange={e => setFormData({ ...formData, factory: e.target.value })} className="w-full px-4 py-2 bg-gray-50 border-2 border-transparent focus:border-indigo-400 rounded-xl outline-none text-sm font-bold" />
                     </div>
                     <div>
-                      <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5">
-                        <span className="flex items-center"><KeyRound className="w-3 h-3 mr-1" /> 密碼 {editingUser ? '(留空則不變更)' : '(預設：123456)'}</span>
+                      <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5">Dept (Max 10)</label>
+                      <input type="text" maxLength={10} value={formData.dept} onChange={e => setFormData({ ...formData, dept: e.target.value })} className="w-full px-4 py-2 bg-gray-50 border-2 border-transparent focus:border-indigo-400 rounded-xl outline-none text-sm font-bold" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5">Role / Title (Max 10)</label>
+                      <input type="text" maxLength={10} value={formData.jobRole} onChange={e => setFormData({ ...formData, jobRole: e.target.value })} className="w-full px-4 py-2 bg-gray-50 border-2 border-transparent focus:border-indigo-400 rounded-xl outline-none text-sm font-bold" placeholder="Manager等" />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5">帳號狀態 (啟用/停用)</label>
+                      <Select options={enableOptions} value={enableOptions.find(o => o.value === formData.enabled)} onChange={o => setFormData({ ...formData, enabled: o?.value ?? true })} />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5">系統登入角色</label>
+                      <Select options={roleOptions} value={roleOptions.find(o => o.value === formData.role)} onChange={o => setFormData({ ...formData, role: o?.value || 'MEMBER' })} />
+                    </div>
+                    <div className="lg:col-span-2">
+                      <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5 flex items-center">
+                        <KeyRound className="w-3 h-3 mr-1" /> 密碼 {editingUser ? '(留空則不變更)' : '(預設：123456)'}
                       </label>
-                      <input
-                        type="password"
-                        value={formData.password}
-                        onChange={e => setFormData({ ...formData, password: e.target.value })}
-                        className="w-full px-4 py-2.5 bg-gray-50 border-2 border-transparent focus:border-indigo-400 rounded-xl outline-none text-sm font-bold transition-all"
-                        placeholder={editingUser ? '留空則不更改密碼' : '預設為 123456'}
-                      />
+                      <input type="password" value={formData.password} onChange={e => setFormData({ ...formData, password: e.target.value })} className="w-full px-4 py-2 bg-gray-50 border-2 border-transparent focus:border-indigo-400 rounded-xl outline-none text-sm font-bold" placeholder={editingUser ? '留空則不更改密碼' : '預設為 123456'} />
                     </div>
                   </div>
 
@@ -317,11 +480,7 @@ export default function TeamManagement() {
                     <button onClick={cancelForm} className="px-5 py-2 text-sm font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition-all flex items-center">
                       <X className="w-4 h-4 mr-1" /> 取消
                     </button>
-                    <button
-                      onClick={isCreating ? handleCreateUser : handleUpdateUser}
-                      disabled={isSubmitting}
-                      className="px-6 py-2 bg-indigo-600 text-white text-sm font-bold rounded-xl hover:bg-indigo-700 shadow transition-all active:scale-95 flex items-center disabled:opacity-60"
-                    >
+                    <button onClick={isCreating ? handleCreateUser : handleUpdateUser} disabled={isSubmitting} className="px-6 py-2 bg-indigo-600 text-white text-sm font-bold rounded-xl hover:bg-indigo-700 shadow transition-all active:scale-95 flex items-center disabled:opacity-60">
                       <Check className="w-4 h-4 mr-1" /> {isSubmitting ? '處理中...' : (isCreating ? '確認建立' : '儲存修改')}
                     </button>
                   </div>
@@ -330,50 +489,75 @@ export default function TeamManagement() {
 
               {/* 使用者列表 */}
               <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
-                <div className="divide-y">
-                  {allUsers.map(user => (
-                    <div key={user.id} className="flex items-center justify-between p-4 hover:bg-gray-50 transition-colors group">
-                      <div className="flex items-center space-x-4">
-                        <div className={`h-11 w-11 rounded-xl flex items-center justify-center font-black text-lg shrink-0 ${user.role === 'OWNER' ? 'bg-amber-100 text-amber-700' : 'bg-indigo-50 text-indigo-600'}`}>
-                          {user.name.charAt(0)}
-                        </div>
-                        <div>
-                          <p className="font-bold text-gray-900 text-sm flex items-center gap-2">
-                            {user.name} ({user.username})
-                            {currentUser?.id === user.id && <span className="text-[10px] bg-green-100 text-green-700 px-1.5 rounded font-black">我</span>}
-                          </p>
-                          <p className="text-xs text-gray-400">{user.email}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase ${user.role === 'OWNER' ? 'bg-amber-100 text-amber-600' : 'bg-gray-100 text-gray-500'}`}>
-                          {user.role}
-                        </span>
-                        <button
-                          onClick={() => startEdit(user)}
-                          className="p-1.5 text-gray-300 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
-                          title="編輯使用者"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteUser(user.id, user.name)}
-                          disabled={currentUser?.id === user.id}
-                          className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                          title={currentUser?.id === user.id ? '無法刪除自己' : '永久刪除使用者'}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                  {allUsers.length === 0 && (
-                    <div className="p-12 text-center text-gray-400">
-                      <Users className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                      <p className="font-bold">尚無任何系統使用者</p>
-                      <p className="text-xs mt-1">點擊上方「建立新使用者」開始建立</p>
-                    </div>
-                  )}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse min-w-max">
+                    <thead>
+                      <tr className="bg-gray-50 border-b text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                        <th className="px-4 py-3 cursor-pointer hover:bg-gray-100" onClick={() => requestSort('name')}>人員 / 帳號 <SortIcon columnKey="name" /></th>
+                        <th className="px-4 py-3 cursor-pointer hover:bg-gray-100" onClick={() => requestSort('email')}>Email <SortIcon columnKey="email" /></th>
+                        <th className="px-4 py-3 cursor-pointer hover:bg-gray-100" onClick={() => requestSort('bu')}>BU <SortIcon columnKey="bu" /></th>
+                        <th className="px-4 py-3 cursor-pointer hover:bg-gray-100" onClick={() => requestSort('dept')}>Dept <SortIcon columnKey="dept" /></th>
+                        <th className="px-4 py-3 cursor-pointer hover:bg-gray-100" onClick={() => requestSort('jobRole')}>職稱 <SortIcon columnKey="jobRole" /></th>
+                        <th className="px-4 py-3 cursor-pointer hover:bg-gray-100" onClick={() => requestSort('enabled')}>狀態 <SortIcon columnKey="enabled" /></th>
+                        <th className="px-4 py-3 cursor-pointer hover:bg-gray-100" onClick={() => requestSort('role')}>系統角色 <SortIcon columnKey="role" /></th>
+                        <th className="px-4 py-3 text-right">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y text-sm">
+                      {filteredAndSortedUsers.map(user => (
+                        <tr key={user.id} className={`hover:bg-gray-50 transition-colors ${user.enabled === false ? 'opacity-60 bg-gray-50/50' : ''}`}>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center space-x-3">
+                              <div className={`h-8 w-8 rounded-full flex items-center justify-center font-black text-xs shrink-0 ${user.role === 'OWNER' ? 'bg-amber-100 text-amber-700' : 'bg-indigo-50 text-indigo-600'}`}>
+                                {user.name.charAt(0)}
+                              </div>
+                              <div>
+                                <div className="font-bold text-gray-900 flex items-center gap-1.5">
+                                  {user.name} 
+                                  <span className="text-[10px] text-gray-400">({user.username})</span>
+                                  {currentUser?.id === user.id && <span className="text-[9px] bg-green-100 text-green-700 px-1 rounded font-black">我</span>}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-gray-500 text-xs">{user.email}</td>
+                          <td className="px-4 py-3 text-gray-800 font-bold text-xs">{user.bu || '-'}</td>
+                          <td className="px-4 py-3 text-gray-800 font-bold text-xs">{user.dept || '-'}</td>
+                          <td className="px-4 py-3 text-gray-500 text-xs">{user.jobRole || '-'}</td>
+                          <td className="px-4 py-3">
+                            {user.enabled !== false ? (
+                              <span className="text-[10px] font-black px-2 py-0.5 rounded-full uppercase bg-green-100 text-green-700 border border-green-200">Active</span>
+                            ) : (
+                              <span className="text-[10px] font-black px-2 py-0.5 rounded-full uppercase bg-gray-200 text-gray-600 border border-gray-300">Disabled</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`text-[9px] font-black px-2 py-0.5 rounded uppercase ${user.role === 'OWNER' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>
+                              {user.role}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex justify-end gap-1">
+                              <button onClick={() => startEdit(user)} className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-all" title="編輯">
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button onClick={() => handleDeleteUser(user.id, user.name)} disabled={currentUser?.id === user.id} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-all disabled:opacity-30 disabled:cursor-not-allowed" title="刪除">
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {filteredAndSortedUsers.length === 0 && (
+                        <tr>
+                          <td colSpan={8} className="p-12 text-center text-gray-400">
+                            <Users className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                            <p className="font-bold">找不到相符的使用者資料</p>
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
@@ -384,7 +568,7 @@ export default function TeamManagement() {
             <div className="space-y-4">
               <div>
                 <h2 className="text-lg font-black text-gray-900">專案成員管理</h2>
-                <p className="text-sm text-gray-400 mt-0.5">為各專案指派團隊成員。成員須先在系統使用者中建立。</p>
+                <p className="text-sm text-gray-400 mt-0.5">為各專案指派團隊成員。被停用的系統帳號無法指派至新專案。</p>
               </div>
 
               <div className="bg-white p-5 rounded-2xl border shadow-sm">
@@ -402,14 +586,14 @@ export default function TeamManagement() {
                     <UserPlus className="w-4 h-4 mr-2" /> 從系統使用者中加入成員
                   </h4>
                   <Select
-                    placeholder="搜尋系統使用者名稱或電子郵件..."
+                    placeholder="搜尋系統使用者名稱或電子郵件 (僅顯示啟用中)..."
                     options={memberOptions}
                     onChange={(opt) => opt && handleAddMember(opt.value)}
                     isClearable
                     value={null}
                   />
                   {memberOptions.length === 0 && allUsers.length > 0 && (
-                    <p className="text-xs text-indigo-400 mt-2">所有系統使用者均已加入此專案。</p>
+                    <p className="text-xs text-indigo-400 mt-2">所有啟用中的系統使用者均已加入此專案。</p>
                   )}
                 </div>
               )}
@@ -426,23 +610,20 @@ export default function TeamManagement() {
                       <div key={member.id} className="flex items-center justify-between p-4 hover:bg-gray-50 transition-colors">
                         <div className="flex items-center space-x-4">
                           <div className={`h-11 w-11 rounded-xl flex items-center justify-center font-bold text-lg ${isMemberOwner ? 'bg-amber-100 text-amber-700' : 'bg-indigo-50 text-indigo-600'}`}>
-                            {u?.name.charAt(0)}
+                            {u?.name.charAt(0) || '?'}
                           </div>
                           <div>
                             <p className="font-bold text-gray-900 text-sm flex items-center gap-2">
                               {u?.name}
                               {isMemberOwner && <span className="bg-amber-500 text-white text-[10px] px-1.5 py-0.5 rounded font-black">OWNER</span>}
+                              {u?.enabled === false && <span className="bg-gray-500 text-white text-[9px] px-1.5 py-0.5 rounded font-black">停用中</span>}
                             </p>
                             <p className="text-xs text-gray-400">{u?.email}</p>
                             <p className="text-xs text-indigo-600 font-bold mt-0.5">{member.projectRole}</p>
                           </div>
                         </div>
                         {isOwner && !isMemberOwner && (
-                          <button
-                            onClick={() => handleRemoveMember(member.userId)}
-                            className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
-                            title="從專案移除"
-                          >
+                          <button onClick={() => handleRemoveMember(member.userId)} className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all" title="從專案移除">
                             <Trash2 className="w-4 h-4" />
                           </button>
                         )}
@@ -463,6 +644,43 @@ export default function TeamManagement() {
 
         </div>
       </main>
+
+      {/* Import Logs Modal */}
+      {importLogs && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[80vh]">
+            <div className="px-6 py-4 border-b flex justify-between items-center bg-gray-50">
+              <h3 className="font-black text-indigo-900 flex items-center text-lg">
+                <CheckCircle className="w-5 h-5 mr-2 text-indigo-600" /> 批次匯入結果
+              </h3>
+              <button onClick={() => setImportLogs(null)} className="p-1.5 hover:bg-gray-200 rounded-full transition-colors text-gray-500">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 overflow-auto flex-1 font-mono text-xs space-y-2">
+              <div className="flex gap-4 mb-4 font-sans font-bold">
+                <div className="px-4 py-2 bg-green-50 text-green-700 rounded-lg border border-green-200 flex-1">
+                  成功: {importLogs.filter(l => l.status === 'success').length} 筆
+                </div>
+                <div className="px-4 py-2 bg-red-50 text-red-700 rounded-lg border border-red-200 flex-1">
+                  失敗: {importLogs.filter(l => l.status === 'error').length} 筆
+                </div>
+              </div>
+              {importLogs.map((log, i) => (
+                <div key={i} className={`p-2.5 rounded-lg border flex gap-3 ${log.status === 'success' ? 'bg-green-50 border-green-100 text-green-800' : 'bg-red-50 border-red-100 text-red-800'}`}>
+                  {log.status === 'success' ? <CheckCircle className="w-4 h-4 shrink-0 mt-0.5" /> : <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />}
+                  <span className="leading-relaxed">{log.msg}</span>
+                </div>
+              ))}
+            </div>
+            <div className="p-4 border-t bg-gray-50 flex justify-end">
+              <button onClick={() => setImportLogs(null)} className="px-6 py-2 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700">
+                關閉視窗
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

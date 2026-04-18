@@ -62,6 +62,12 @@ public class Task {
     @Column(length = 50)
     private String phase; // 此任務隸屬於專案中的哪個生命週期階段
 
+    @Column(name = "display_order")
+    private Integer displayOrder;
+
+    @Column(length = 500)
+    private String predecessors;
+
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
@@ -97,6 +103,10 @@ public class Task {
     public void setActualHours(Integer actualHours) { this.actualHours = actualHours; }
     public String getPhase() { return phase; }
     public void setPhase(String phase) { this.phase = phase; }
+    public Integer getDisplayOrder() { return displayOrder; }
+    public void setDisplayOrder(Integer displayOrder) { this.displayOrder = displayOrder; }
+    public String getPredecessors() { return predecessors; }
+    public void setPredecessors(String predecessors) { this.predecessors = predecessors; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
 

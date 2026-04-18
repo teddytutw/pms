@@ -15,7 +15,7 @@ public class User {
     @Column(unique = true, length = 100)
     private String username; // 登入帳號
     
-    @Column(unique = true, length = 100)
+    @Column(length = 100)
     private String email;
     
     @Column(length = 50)
@@ -23,6 +23,21 @@ public class User {
 
     @Column(name = "PASSWORD", nullable = false, length = 100)
     private String password;
+
+    @Column(length = 10)
+    private String bu;
+
+    @Column(length = 10)
+    private String factory;
+
+    @Column(length = 10)
+    private String jobRole;
+
+    @Column(length = 10)
+    private String dept;
+
+    @Column(name = "ENABLED")
+    private Boolean enabled = true;
 
     public User() {}
     public User(String name, String email, String role, String password) {
@@ -45,4 +60,14 @@ public class User {
     public void setRole(String role) { this.role = role; }
     public String getPassword() { return password; }
     public void setPassword(String password) { this.password = password; }
+    public String getBu() { return bu; }
+    public void setBu(String bu) { this.bu = bu; }
+    public String getFactory() { return factory; }
+    public void setFactory(String factory) { this.factory = factory; }
+    public String getJobRole() { return jobRole; }
+    public void setJobRole(String jobRole) { this.jobRole = jobRole; }
+    public String getDept() { return dept; }
+    public void setDept(String dept) { this.dept = dept; }
+    public boolean isEnabled() { return enabled != null ? enabled : true; }
+    public void setEnabled(Boolean enabled) { this.enabled = enabled; }
 }

@@ -1,0 +1,20 @@
+﻿[INFO] Scanning for projects...
+[INFO] 
+[INFO] ------------------------------< com:pms >-------------------------------
+[INFO] Building pms-system 1.0.0-SNAPSHOT
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- dependency:3.6.1:tree (default-cli) @ pms ---
+[INFO] com:pms:jar:1.0.0-SNAPSHOT
+[INFO] +- net.sf.mpxj:mpxj:jar:16.0.0:compile
+[INFO] |  \- org.apache.poi:poi:jar:5.5.1:compile
+[INFO] \- org.apache.poi:poi-ooxml:jar:5.5.1:compile
+[INFO]    +- org.apache.poi:poi-ooxml-lite:jar:5.5.1:compile
+[INFO]    \- commons-io:commons-io:jar:2.21.0:compile
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  6.651 s
+[INFO] Finished at: 2026-04-16T13:22:51+08:00
+[INFO] ------------------------------------------------------------------------

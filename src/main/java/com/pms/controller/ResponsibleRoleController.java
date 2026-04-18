@@ -31,9 +31,7 @@ public class ResponsibleRoleController {
     @DeleteMapping("/{id}")
     public ResponseEntity<?> delete(@PathVariable long id) {
         return repository.findById(id).map(role -> {
-            @SuppressWarnings("null")
-            var dummy = role; // suppress isn't easily placed on a statement only, so let's just annotate the variable, wait actually delete(role) is void.
-            repository.delete(dummy);
+            repository.delete(role);
             return ResponseEntity.ok().build();
         }).orElse(ResponseEntity.notFound().build());
     }

@@ -51,6 +51,8 @@ public class DataLoader {
                 p.setOwnerId(alice.getId());
                 p.setPlannedStartDate("2024-04-01");
                 p.setPlannedEndDate("2024-12-31");
+                p.setProjectYear("2024");
+                p.setExecutionStatus("STARTED");
                 p.setBudget(1000000.0);
                 p = projectRepository.save(p);
 

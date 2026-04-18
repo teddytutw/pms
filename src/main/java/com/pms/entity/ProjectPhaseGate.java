@@ -46,6 +46,9 @@ public class ProjectPhaseGate {
     @Column(name = "actual_end_date", length = 50)
     private String actualEndDate;
 
+    @Column(name = "display_order")
+    private Integer displayOrder = 0;
+
     @Column(name = "planned_duration", length = 50)
     private String plannedDuration;
 
@@ -90,6 +93,8 @@ public class ProjectPhaseGate {
     public void setActualStartDate(String actualStartDate) { this.actualStartDate = actualStartDate; }
     public String getActualEndDate() { return actualEndDate; }
     public void setActualEndDate(String actualEndDate) { this.actualEndDate = actualEndDate; }
+    public Integer getDisplayOrder() { return displayOrder; }
+    public void setDisplayOrder(Integer displayOrder) { this.displayOrder = displayOrder; }
     public String getPlannedDuration() { return plannedDuration; }
     public void setPlannedDuration(String plannedDuration) { this.plannedDuration = plannedDuration; }
     public String getActualDuration() { return actualDuration; }

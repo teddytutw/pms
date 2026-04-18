@@ -1,0 +1,128 @@
+﻿[INFO] Scanning for projects...
+[INFO] 
+[INFO] ------------------------------< com:pms >-------------------------------
+[INFO] Building pms-system 1.0.0-SNAPSHOT
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- frontend:1.15.0:install-node-and-npm (install node and npm) @ pms ---
+[INFO] Node v20.11.1 is already installed.
+[INFO] NPM 10.2.4 is already installed.
+[INFO] 
+[INFO] --- frontend:1.15.0:npm (npm install) @ pms ---
+[INFO] Running 'npm install' in D:\MyOneDrive\OneDrive\工作資料\Chicony\0_AI\Programming\pms-system\frontend
+[INFO] 
+[INFO] up to date, audited 314 packages in 4s
+[INFO] 
+[INFO] 56 packages are looking for funding
+[INFO]   run `npm fund` for details
+[INFO] 
+[INFO] 5 vulnerabilities (3 moderate, 1 high, 1 critical)
+[INFO] 
+[INFO] To address issues that do not require attention, run:
+[INFO]   npm audit fix
+[INFO] 
+[INFO] To address all issues possible (including breaking changes), run:
+[INFO]   npm audit fix --force
+[INFO] 
+[INFO] Some issues need review, and may require choosing
+[INFO] a different dependency.
+[INFO] 
+[INFO] Run `npm audit` for details.
+[INFO] 
+[INFO] --- frontend:1.15.0:npm (npm run build) @ pms ---
+[INFO] Running 'npm run build' in D:\MyOneDrive\OneDrive\工作資料\Chicony\0_AI\Programming\pms-system\frontend
+[INFO] 
+[INFO] > pms-frontend@0.0.0 build
+[INFO] > tsc && vite build
+[INFO] 
+[INFO] vite v5.4.21 building for production...
+[INFO] transforming...
+[INFO] node_modules/gantt-task-react/dist/index.modern.js (1012:24): A comment
+[INFO] 
+[INFO] "/*#__PURE__*/"
+[INFO] 
+[INFO] in "node_modules/gantt-task-react/dist/index.modern.js" contains an annotation that Rollup cannot interpret due to the position of the comment. The comment will be removed to avoid issues.
+[INFO] node_modules/gantt-task-react/dist/index.modern.js (1014:29): A comment
+[INFO] 
+[INFO] "/*#__PURE__*/"
+[INFO] 
+[INFO] in "node_modules/gantt-task-react/dist/index.modern.js" contains an annotation that Rollup cannot interpret due to the position of the comment. The comment will be removed to avoid issues.
+[INFO] ? 1831 modules transformed.
+[INFO] rendering chunks...
+[INFO] computing gzip size...
+[INFO] dist/index.html                   0.48 kB │ gzip:   0.32 kB
+[INFO] dist/assets/index-CYXjx0R3.css   36.96 kB │ gzip:   7.00 kB
+[INFO] dist/assets/index-BBrISHVA.js   932.27 kB │ gzip: 300.41 kB
+[INFO] dist/assets/index-BBrISHVA.js   932.27 kB │ gzip: 300.41 kB
+[INFO] (!) Some chunks are larger than 500 kB after minification. Consider:
+[INFO] - Using dynamic import() to code-split the application
+[INFO] - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+[INFO] - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+[INFO] ? built in 7.86s
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ pms ---
+[INFO] Copying 3 resources from src\main\resources to target\classes
+[INFO] Copying 0 resource from src\main\resources to target\classes
+[INFO] 
+[INFO] --- resources:3.3.1:copy-resources (copy-react-build) @ pms ---
+[INFO] Copying 3 resources from frontend\dist to target\classes\static
+[INFO] 
+[INFO] --- compiler:3.11.0:compile (default-compile) @ pms ---
+[INFO] Changes detected - recompiling the module! :source
+[INFO] Compiling 32 source files with javac [debug release 17] to target\classes
+[INFO] Annotation processing is enabled because one or more processors were found
+  on the class path. A future release of javac may disable annotation processing
+  unless at least one processor is specified by name (-processor), or a search
+  path is specified (--processor-path, --processor-module-path), or annotation
+  processing is enabled explicitly (-proc:only, -proc:full).
+  Use -Xlint:-options to suppress this message.
+  Use -proc:none to disable annotation processing.
+[INFO] Some messages have been simplified; recompile with -Xdiags:verbose to get full output
+[INFO] -------------------------------------------------------------
+[ERROR] COMPILATION ERROR : 
+[INFO] -------------------------------------------------------------
+[ERROR] /D:/MyOneDrive/OneDrive/工作資料/Chicony/0_AI/Programming/pms-system/src/main/java/com/pms/service/ExportService.java:[49,66] incompatible types: java.util.Date cannot be converted to java.time.LocalDateTime
+[ERROR] /D:/MyOneDrive/OneDrive/工作資料/Chicony/0_AI/Programming/pms-system/src/main/java/com/pms/service/ExportService.java:[57,36] incompatible types: java.util.Date cannot be converted to java.time.LocalDateTime
+[ERROR] /D:/MyOneDrive/OneDrive/工作資料/Chicony/0_AI/Programming/pms-system/src/main/java/com/pms/service/ExportService.java:[58,37] incompatible types: java.util.Date cannot be converted to java.time.LocalDateTime
+[ERROR] /D:/MyOneDrive/OneDrive/工作資料/Chicony/0_AI/Programming/pms-system/src/main/java/com/pms/service/ExportService.java:[59,42] incompatible types: java.util.Date cannot be converted to java.time.LocalDateTime
+[ERROR] /D:/MyOneDrive/OneDrive/工作資料/Chicony/0_AI/Programming/pms-system/src/main/java/com/pms/service/ExportService.java:[60,43] incompatible types: java.util.Date cannot be converted to java.time.LocalDateTime
+[ERROR] /D:/MyOneDrive/OneDrive/工作資料/Chicony/0_AI/Programming/pms-system/src/main/java/com/pms/service/ExportService.java:[66,41] incompatible types: java.util.Date cannot be converted to java.time.LocalDateTime
+[ERROR] /D:/MyOneDrive/OneDrive/工作資料/Chicony/0_AI/Programming/pms-system/src/main/java/com/pms/service/ExportService.java:[67,42] incompatible types: java.util.Date cannot be converted to java.time.LocalDateTime
+[ERROR] /D:/MyOneDrive/OneDrive/工作資料/Chicony/0_AI/Programming/pms-system/src/main/java/com/pms/service/ExportService.java:[68,47] incompatible types: java.util.Date cannot be converted to java.time.LocalDateTime
+[ERROR] /D:/MyOneDrive/OneDrive/工作資料/Chicony/0_AI/Programming/pms-system/src/main/java/com/pms/service/ExportService.java:[69,48] incompatible types: java.util.Date cannot be converted to java.time.LocalDateTime
+[ERROR] /D:/MyOneDrive/OneDrive/工作資料/Chicony/0_AI/Programming/pms-system/src/main/java/com/pms/service/ExportService.java:[99,51] incompatible types: org.mpxj.Relation cannot be converted to org.mpxj.Relation.Builder
+[ERROR] /D:/MyOneDrive/OneDrive/工作資料/Chicony/0_AI/Programming/pms-system/src/main/java/com/pms/service/ExportService.java:[121,36] incompatible types: java.util.Date cannot be converted to java.time.LocalDateTime
+[ERROR] /D:/MyOneDrive/OneDrive/工作資料/Chicony/0_AI/Programming/pms-system/src/main/java/com/pms/service/ExportService.java:[122,37] incompatible types: java.util.Date cannot be converted to java.time.LocalDateTime
+[ERROR] /D:/MyOneDrive/OneDrive/工作資料/Chicony/0_AI/Programming/pms-system/src/main/java/com/pms/service/ExportService.java:[123,42] incompatible types: java.util.Date cannot be converted to java.time.LocalDateTime
+[ERROR] /D:/MyOneDrive/OneDrive/工作資料/Chicony/0_AI/Programming/pms-system/src/main/java/com/pms/service/ExportService.java:[124,43] incompatible types: java.util.Date cannot be converted to java.time.LocalDateTime
+[INFO] 14 errors 
+[INFO] -------------------------------------------------------------
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD FAILURE
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  32.320 s
+[INFO] Finished at: 2026-04-16T10:13:21+08:00
+[INFO] ------------------------------------------------------------------------
+[ERROR] Failed to execute goal org.apache.maven.plugins:maven-compiler-plugin:3.11.0:compile (default-compile) on project pms: Compilation failure: Compilation failure: 
+[ERROR] /D:/MyOneDrive/OneDrive/工作資料/Chicony/0_AI/Programming/pms-system/src/main/java/com/pms/service/ExportService.java:[49,66] incompatible types: java.util.Date cannot be converted to java.time.LocalDateTime
+[ERROR] /D:/MyOneDrive/OneDrive/工作資料/Chicony/0_AI/Programming/pms-system/src/main/java/com/pms/service/ExportService.java:[57,36] incompatible types: java.util.Date cannot be converted to java.time.LocalDateTime
+[ERROR] /D:/MyOneDrive/OneDrive/工作資料/Chicony/0_AI/Programming/pms-system/src/main/java/com/pms/service/ExportService.java:[58,37] incompatible types: java.util.Date cannot be converted to java.time.LocalDateTime
+[ERROR] /D:/MyOneDrive/OneDrive/工作資料/Chicony/0_AI/Programming/pms-system/src/main/java/com/pms/service/ExportService.java:[59,42] incompatible types: java.util.Date cannot be converted to java.time.LocalDateTime
+[ERROR] /D:/MyOneDrive/OneDrive/工作資料/Chicony/0_AI/Programming/pms-system/src/main/java/com/pms/service/ExportService.java:[60,43] incompatible types: java.util.Date cannot be converted to java.time.LocalDateTime
+[ERROR] /D:/MyOneDrive/OneDrive/工作資料/Chicony/0_AI/Programming/pms-system/src/main/java/com/pms/service/ExportService.java:[66,41] incompatible types: java.util.Date cannot be converted to java.time.LocalDateTime
+[ERROR] /D:/MyOneDrive/OneDrive/工作資料/Chicony/0_AI/Programming/pms-system/src/main/java/com/pms/service/ExportService.java:[67,42] incompatible types: java.util.Date cannot be converted to java.time.LocalDateTime
+[ERROR] /D:/MyOneDrive/OneDrive/工作資料/Chicony/0_AI/Programming/pms-system/src/main/java/com/pms/service/ExportService.java:[68,47] incompatible types: java.util.Date cannot be converted to java.time.LocalDateTime
+[ERROR] /D:/MyOneDrive/OneDrive/工作資料/Chicony/0_AI/Programming/pms-system/src/main/java/com/pms/service/ExportService.java:[69,48] incompatible types: java.util.Date cannot be converted to java.time.LocalDateTime
+[ERROR] /D:/MyOneDrive/OneDrive/工作資料/Chicony/0_AI/Programming/pms-system/src/main/java/com/pms/service/ExportService.java:[99,51] incompatible types: org.mpxj.Relation cannot be converted to org.mpxj.Relation.Builder
+[ERROR] /D:/MyOneDrive/OneDrive/工作資料/Chicony/0_AI/Programming/pms-system/src/main/java/com/pms/service/ExportService.java:[121,36] incompatible types: java.util.Date cannot be converted to java.time.LocalDateTime
+[ERROR] /D:/MyOneDrive/OneDrive/工作資料/Chicony/0_AI/Programming/pms-system/src/main/java/com/pms/service/ExportService.java:[122,37] incompatible types: java.util.Date cannot be converted to java.time.LocalDateTime
+[ERROR] /D:/MyOneDrive/OneDrive/工作資料/Chicony/0_AI/Programming/pms-system/src/main/java/com/pms/service/ExportService.java:[123,42] incompatible types: java.util.Date cannot be converted to java.time.LocalDateTime
+[ERROR] /D:/MyOneDrive/OneDrive/工作資料/Chicony/0_AI/Programming/pms-system/src/main/java/com/pms/service/ExportService.java:[124,43] incompatible types: java.util.Date cannot be converted to java.time.LocalDateTime
+[ERROR] -> [Help 1]
+[ERROR] 
+[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
+[ERROR] Re-run Maven using the -X switch to enable full debug logging.
+[ERROR] 
+[ERROR] For more information about the errors and possible solutions, please read the following articles:
+[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoFailureException

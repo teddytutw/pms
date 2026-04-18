@@ -13,6 +13,8 @@ import java.util.Optional;
  * PhaseController — 管理 Phase 的 Activity 基本資料 (owner, responsibleRoles, dates, durations)
  * Phase 以 projectId + phaseName 作為識別組合 (用於 WBS 詳細維護頁面)
  */
+import java.util.Comparator;
+
 @RestController
 @RequestMapping("/api/phases")
 @CrossOrigin(origins = "*")
@@ -85,6 +87,50 @@ public class PhaseController {
      */
     @GetMapping("/project/{projectId}")
     public List<ProjectPhaseGate> getPhasesByProject(@PathVariable Long projectId) {
-        return phaseRepository.findByProjectId(projectId);
+        return phaseRepository.findByProjectId(projectId).stream()
+                .sorted(Comparator.comparing(phase -> phase.getDisplayOrder() != null ? phase.getDisplayOrder() : 0))
+                .toList();
+    }
+
+    /**
+     * 新增自訂專案階段
+     */
+    @PostMapping("/project/{projectId}")
+    public ResponseEntity<ProjectPhaseGate> addPhase(@PathVariable Long projectId, @RequestBody ProjectPhaseGate phaseRequest) {
+        List<ProjectPhaseGate> list = phaseRepository.findByProjectId(projectId);
+        int maxOrder = list.stream()
+                .mapToInt(p -> p.getDisplayOrder() != null ? p.getDisplayOrder() : 0)
+                .max().orElse(0);
+
+        ProjectPhaseGate newPhase = new ProjectPhaseGate();
+        newPhase.setProjectId(projectId);
+        newPhase.setPhaseName(phaseRequest.getPhaseName());
+        newPhase.setActivityType("PHASE");
+        newPhase.setDisplayOrder(maxOrder + 1);
+
+        @SuppressWarnings("null")
+        ProjectPhaseGate saved = phaseRepository.save(newPhase);
+        return ResponseEntity.ok(saved);
+    }
+
+    /**
+     * 重新排序專案階段
+     */
+    @PutMapping("/project/{projectId}/reorder")
+    public ResponseEntity<Void> reorderPhases(@PathVariable Long projectId, @RequestBody List<Long> phaseIds) {
+        List<ProjectPhaseGate> list = phaseRepository.findByProjectId(projectId);
+        
+        for (int i = 0; i < phaseIds.size(); i++) {
+            Long id = phaseIds.get(i);
+            int order = i + 1;
+            list.stream()
+                .filter(p -> p.getId().equals(id))
+                .findFirst()
+                .ifPresent(p -> {
+                    p.setDisplayOrder(order);
+                    phaseRepository.save(p);
+                });
+        }
+        return ResponseEntity.ok().build();
     }
 }

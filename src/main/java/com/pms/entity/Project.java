@@ -64,6 +64,12 @@ public class Project {
     @Column(name = "status", length = 20)
     private String status = "ACTIVE"; // ACTIVE, ARCHIVED, DELETED
 
+    @Column(name = "project_year", length = 10)
+    private String projectYear; // e.g. "2024"
+
+    @Column(name = "execution_status", length = 20)
+    private String executionStatus = "NOT_STARTED"; // NOT_STARTED, STARTED, TEMPLATE
+
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
@@ -127,4 +133,9 @@ public class Project {
     public void setDqaUserId(Long dqaUserId) { this.dqaUserId = dqaUserId; }
     public Long getErdUserId() { return erdUserId; }
     public void setErdUserId(Long erdUserId) { this.erdUserId = erdUserId; }
+
+    public String getProjectYear() { return projectYear; }
+    public void setProjectYear(String projectYear) { this.projectYear = projectYear; }
+    public String getExecutionStatus() { return executionStatus; }
+    public void setExecutionStatus(String executionStatus) { this.executionStatus = executionStatus; }
 }

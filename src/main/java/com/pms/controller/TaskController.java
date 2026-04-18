@@ -23,7 +23,7 @@ public class TaskController {
 
     @GetMapping("/project/{projectId}")
     public List<Task> getTasksByProject(@PathVariable long projectId) {
-        List<Task> tasks = taskRepository.findByProjectIdOrderByCreatedAtDesc(projectId);
+        List<Task> tasks = taskRepository.findByProjectIdOrderByDisplayOrderAsc(projectId);
         tasks.forEach(t -> t.setStatusIndicator(statusService.calculateTaskStatus(t)));
         return tasks;
     }
@@ -50,7 +50,7 @@ public class TaskController {
     @PutMapping("/{id}")
     public ResponseEntity<Task> updateTask(@PathVariable long id, @RequestBody Task taskDetails) {
         return taskRepository.findById(id).map(task -> {
-            task.setTitle(taskDetails.getTitle());
+            if (taskDetails.getTitle() != null) task.setTitle(taskDetails.getTitle());
             if (taskDetails.getStatus() != null) task.setStatus(taskDetails.getStatus());
             if (taskDetails.getProjectId() != null) task.setProjectId(taskDetails.getProjectId());
             if (taskDetails.getAssigneeId() != null) task.setAssigneeId(taskDetails.getAssigneeId());
@@ -65,6 +65,9 @@ public class TaskController {
             if (taskDetails.getPhase() != null) task.setPhase(taskDetails.getPhase());
             if (taskDetails.getEstimatedHours() != null) task.setEstimatedHours(taskDetails.getEstimatedHours());
             if (taskDetails.getActualHours() != null) task.setActualHours(taskDetails.getActualHours());
+            if (taskDetails.getDisplayOrder() != null) task.setDisplayOrder(taskDetails.getDisplayOrder());
+            if (taskDetails.getParentTaskId() != null) task.setParentTaskId(taskDetails.getParentTaskId());
+            if (taskDetails.getPredecessors() != null) task.setPredecessors(taskDetails.getPredecessors());
             Task saved = taskRepository.save(task);
             return ResponseEntity.ok(saved);
         }).orElse(ResponseEntity.notFound().build());
@@ -116,6 +119,23 @@ public class TaskController {
             }
             if (fields.containsKey("actualEndDate")) {
                 task.setActualEndDate((String) fields.get("actualEndDate"));
+            }
+            if (fields.containsKey("displayOrder")) {
+                Object dO = fields.get("displayOrder");
+                if (dO instanceof Number) {
+                    task.setDisplayOrder(((Number) dO).intValue());
+                }
+            }
+            if (fields.containsKey("parentTaskId")) {
+                Object pId = fields.get("parentTaskId");
+                if (pId == null) {
+                    task.setParentTaskId(null);
+                } else if (pId instanceof Number) {
+                    task.setParentTaskId(((Number) pId).longValue());
+                }
+            }
+            if (fields.containsKey("predecessors")) {
+                task.setPredecessors((String) fields.get("predecessors"));
             }
             @SuppressWarnings("null")
             final Task saved = taskRepository.save(task);

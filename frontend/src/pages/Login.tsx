@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogIn, Lock, Users } from 'lucide-react';
+import { Lock, Users } from 'lucide-react';
 
 export default function Login() {
   const [username, setUsername] = useState('');
@@ -15,7 +15,7 @@ export default function Login() {
     setError('');
 
     try {
-      const response = await fetch('http://localhost:8080/api/auth/login', {
+      const response = await fetch((import.meta as any).env.BASE_URL + 'api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password })
@@ -24,7 +24,7 @@ export default function Login() {
       if (response.ok) {
         const user = await response.json();
         localStorage.setItem('currentUser', JSON.stringify(user));
-        navigate('/dashboard');
+        navigate('/projects');
       } else {
         const data = await response.json();
         setError(data.message || '登入失敗，請檢查帳號與密碼。');
@@ -40,10 +40,8 @@ export default function Login() {
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-cyan-50 flex items-center justify-center p-4">
       <div className="max-w-md w-full bg-white rounded-3xl shadow-xl overflow-hidden border border-gray-100">
         <div className="p-8">
-          <div className="flex justify-center mb-6">
-            <div className="h-14 w-14 rounded-2xl bg-indigo-600 flex items-center justify-center text-white shadow-lg shadow-indigo-200">
-              <LogIn className="w-8 h-8" />
-            </div>
+          <div className="flex justify-center mb-10">
+            <img src={(import.meta as any).env.BASE_URL + 'logo.png'} alt="Chicony Logo" className="h-20 w-auto object-contain" />
           </div>
           
           <h2 className="text-2xl font-bold text-center text-gray-900 mb-2">PMP 企業專案管理系統</h2>
@@ -57,7 +55,7 @@ export default function Login() {
 
           <form onSubmit={handleLogin} className="space-y-5">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">帳號或電子郵件 (Username/Email)</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">帳號 (Username)</label>
               <div className="relative">
                 <Users className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
                 <input
@@ -94,10 +92,6 @@ export default function Login() {
               {isLoading ? '驗證中...' : '登入系統'}
             </button>
           </form>
-
-          <div className="mt-8 text-center text-xs text-gray-400">
-            測試帳號：alice@pms.com / 123456
-          </div>
         </div>
       </div>
     </div>

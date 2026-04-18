@@ -1,43 +1,19 @@
 spring:
-  profiles:
-    active: oracle # 預設切換為 oracle 或是 postgresql
-
-  # 共同設定
   application:
     name: pms-system
+  config:
+    import: "optional:file:D:/agile_config/pms/application_pms.yml"
 
+---
+spring:
+  config:
+    activate:
+      on-profile: "oracle"
+    import: "optional:file:D:/agile_config/pms/application-oracle_pms.yml"
 
-  # SMTP Configuration
-  mail:
-    host: 172.16.199.8
-    port: 25
-    properties:
-      mail:
-        smtp:
-          auth: false
-          ssl:
-            enable: false
-        transport:
-          protocol: smtp
-    default-encoding: UTF-8
-
-pms:
-  auth:
-    mode: DB # 選項: DB, LDAP, BOTH
-
-server:
-  port: 8080
-
-# LDAP AD Configuration
-ldap-config:
-  ldaps:
-    - url: ldap://172.16.199.1:389
-      username: wf_ldap
-      password: wf_ldap
-      bases:
-        - ou=CEC,dc=chicony,dc=local
-    - url: ldap://172.16.199.225:389
-      username: wf_ldap
-      password: wf_ldap
-      bases:
-        - ou=User,dc=cem3,dc=com
+---
+spring:
+  config:
+    activate:
+      on-profile: "postgresql"
+    import: "optional:file:D:/agile_config/pms/application-postgresql_pms.yml"

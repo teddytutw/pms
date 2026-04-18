@@ -1,10 +1,9 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import Landing from './pages/Landing';
 import Dashboard from './pages/Dashboard';
 import Login from './pages/Login';
 import EntityDetails from './pages/EntityDetails';
 import TeamManagement from './pages/TeamManagement';
-import RoleManagement from './pages/RoleManagement';
+import ProjectHub from './pages/ProjectHub';
 
 // 簡單的路由守衛組件
 const PrivateRoute = ({ children }: { children: JSX.Element }) => {
@@ -14,13 +13,13 @@ const PrivateRoute = ({ children }: { children: JSX.Element }) => {
 
 function App() {
   return (
-    <Router>
+    <Router basename={(import.meta as any).env.BASE_URL}>
       <Routes>
         {/* 登入頁面 */}
         <Route path="/login" element={<Login />} />
         
-        {/* 預設首頁 */}
-        <Route path="/" element={<Landing />} />
+        {/* 預設首頁 - 直接導向登入 */}
+        <Route path="/" element={<Navigate to="/login" />} />
         
         {/* 主要儀表板頁面 (受保護) */}
         <Route 
@@ -28,6 +27,16 @@ function App() {
           element={
             <PrivateRoute>
               <Dashboard />
+            </PrivateRoute>
+          } 
+        />
+        
+        {/* 專案中心 (受保護) */}
+        <Route 
+          path="/projects" 
+          element={
+            <PrivateRoute>
+              <ProjectHub />
             </PrivateRoute>
           } 
         />
@@ -46,14 +55,6 @@ function App() {
           element={
             <PrivateRoute>
               <TeamManagement />
-            </PrivateRoute>
-          } 
-        />
-        <Route 
-          path="/roles" 
-          element={
-            <PrivateRoute>
-              <RoleManagement />
             </PrivateRoute>
           } 
         />

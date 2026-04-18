@@ -12,6 +12,12 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ContentDisposition;
+import org.springframework.web.multipart.MultipartFile;
+import com.pms.service.ExportService;
+import com.pms.service.ImportService;
 
 @RestController
 @RequestMapping("/api/projects")
@@ -33,11 +39,17 @@ public class ProjectController {
     @Autowired
     private com.pms.service.StatusService statusService;
 
+    @Autowired
+    private ExportService exportService;
+
+    @Autowired
+    private ImportService importService;
+
     @GetMapping
     public List<Project> getAllProjects() {
         List<Project> projects = projectRepository.findAll();
         for (Project p : projects) {
-            List<Task> tasks = taskRepository.findByProjectIdOrderByCreatedAtDesc(p.getId());
+            List<Task> tasks = taskRepository.findByProjectIdOrderByDisplayOrderAsc(p.getId());
             List<ProjectPhaseGate> phases = phaseRepository.findByProjectId(p.getId());
             statusService.enrichProject(p, phases, tasks);
         }
@@ -48,7 +60,7 @@ public class ProjectController {
     public ResponseEntity<Project> getProjectById(@PathVariable long id) {
         return projectRepository.findById(id)
                 .map(p -> {
-                    List<Task> tasks = taskRepository.findByProjectIdOrderByCreatedAtDesc(p.getId());
+                    List<Task> tasks = taskRepository.findByProjectIdOrderByDisplayOrderAsc(p.getId());
                     List<ProjectPhaseGate> phases = phaseRepository.findByProjectId(p.getId());
                     statusService.enrichProject(p, phases, tasks);
                     return ResponseEntity.ok(p);
@@ -67,26 +79,30 @@ public class ProjectController {
     @PutMapping("/{id}")
     public ResponseEntity<Project> updateProject(@PathVariable long id, @RequestBody Project projectDetails) {
         return projectRepository.findById(id).map(project -> {
-            project.setName(projectDetails.getName());
-            project.setDescription(projectDetails.getDescription());
-            project.setOwnerId(projectDetails.getOwnerId());
+            if (projectDetails.getName() != null) project.setName(projectDetails.getName());
+            if (projectDetails.getDescription() != null) project.setDescription(projectDetails.getDescription());
+            if (projectDetails.getOwnerId() != null) project.setOwnerId(projectDetails.getOwnerId());
+            if (projectDetails.getCurrentPhase() != null) project.setCurrentPhase(projectDetails.getCurrentPhase());
             if (projectDetails.getResponsibleRoles() != null) project.setResponsibleRoles(projectDetails.getResponsibleRoles());
-            project.setPlannedStartDate(projectDetails.getPlannedStartDate());
-            project.setPlannedEndDate(projectDetails.getPlannedEndDate());
+            if (projectDetails.getPlannedStartDate() != null) project.setPlannedStartDate(projectDetails.getPlannedStartDate());
+            if (projectDetails.getPlannedEndDate() != null) project.setPlannedEndDate(projectDetails.getPlannedEndDate());
             if (projectDetails.getPlannedDuration() != null) project.setPlannedDuration(projectDetails.getPlannedDuration());
-            project.setActualStartDate(projectDetails.getActualStartDate());
-            project.setActualEndDate(projectDetails.getActualEndDate());
+            if (projectDetails.getActualStartDate() != null) project.setActualStartDate(projectDetails.getActualStartDate());
+            if (projectDetails.getActualEndDate() != null) project.setActualEndDate(projectDetails.getActualEndDate());
             if (projectDetails.getActualDuration() != null) project.setActualDuration(projectDetails.getActualDuration());
-            project.setBudget(projectDetails.getBudget());
+            if (projectDetails.getBudget() != null) project.setBudget(projectDetails.getBudget());
             if (projectDetails.getStatus() != null) project.setStatus(projectDetails.getStatus());
-            // Project Members by role
-            project.setBpmUserId(projectDetails.getBpmUserId());
-            project.setMipmUserId(projectDetails.getMipmUserId());
-            project.setSqeUserId(projectDetails.getSqeUserId());
-            project.setEngUserId(projectDetails.getEngUserId());
-            project.setPurUserId(projectDetails.getPurUserId());
-            project.setDqaUserId(projectDetails.getDqaUserId());
-            project.setErdUserId(projectDetails.getErdUserId());
+            if (projectDetails.getExecutionStatus() != null) project.setExecutionStatus(projectDetails.getExecutionStatus());
+            
+            // Role members (only update if provided)
+            if (projectDetails.getBpmUserId() != null) project.setBpmUserId(projectDetails.getBpmUserId());
+            if (projectDetails.getMipmUserId() != null) project.setMipmUserId(projectDetails.getMipmUserId());
+            if (projectDetails.getSqeUserId() != null) project.setSqeUserId(projectDetails.getSqeUserId());
+            if (projectDetails.getEngUserId() != null) project.setEngUserId(projectDetails.getEngUserId());
+            if (projectDetails.getPurUserId() != null) project.setPurUserId(projectDetails.getPurUserId());
+            if (projectDetails.getDqaUserId() != null) project.setDqaUserId(projectDetails.getDqaUserId());
+            if (projectDetails.getErdUserId() != null) project.setErdUserId(projectDetails.getErdUserId());
+
             return ResponseEntity.ok(projectRepository.save(project));
         }).orElse(ResponseEntity.notFound().build());
     }
@@ -138,5 +154,55 @@ public class ProjectController {
             }
             return ResponseEntity.ok().build();
         }).orElse(ResponseEntity.notFound().build());
+    }
+
+    @GetMapping("/{id}/export")
+    public ResponseEntity<byte[]> exportProject(@PathVariable long id) {
+        try {
+            byte[] xmlContent = exportService.exportProjectToMspdi(id);
+            Project project = projectRepository.findById(id).orElseThrow();
+            String filename = project.getName().replaceAll("[\\\\/:*?\"<>|]", "_") + ".xml";
+
+            @SuppressWarnings("null")
+            final var response = ResponseEntity.ok()
+                    .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment().filename(filename).build().toString())
+                    .contentType(MediaType.APPLICATION_XML)
+                    .body(xmlContent);
+            return response;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    @PostMapping(value = "/{id}/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<?> importWbs(@PathVariable long id,
+                                       @RequestParam("file") MultipartFile file) {
+        try {
+            java.util.Map<String, Object> result = importService.importWbs(id, file);
+            return ResponseEntity.ok(result);
+        } catch (org.springframework.web.server.ResponseStatusException rse) {
+            return ResponseEntity.status(rse.getStatusCode())
+                    .body(java.util.Map.of("error", rse.getReason()));
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.internalServerError()
+                    .body(java.util.Map.of("error", "Internal error: " + e.getMessage()));
+        }
+    }
+
+    @PostMapping("/{id}/repair-data")
+    public ResponseEntity<?> repairData(@PathVariable long id) {
+        try {
+            java.util.Map<String, Object> result = importService.repairProjectData(id);
+            return ResponseEntity.ok(result);
+        } catch (org.springframework.web.server.ResponseStatusException rse) {
+            return ResponseEntity.status(rse.getStatusCode())
+                    .body(java.util.Map.of("error", rse.getReason()));
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.internalServerError()
+                    .body(java.util.Map.of("error", "Repair failed: " + e.getMessage()));
+        }
     }
 }
