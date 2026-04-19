@@ -1,0 +1,297 @@
+﻿commit bbad3d323f9c4d529754dc0e52263ffa2e280d40
+Author: Ted_Ho(雿?? <10007327@chicony.local>
+Date:   Sat Apr 18 23:24:26 2026 +0800
+
+    Fix Gantt chart rendering loop, add Gantt MO/YR views, and externalize application YAML
+
+diff --git a/frontend/src/pages/EntityDetails.tsx b/frontend/src/pages/EntityDetails.tsx
+index 4db9de8..cb59ed5 100644
+--- a/frontend/src/pages/EntityDetails.tsx
++++ b/frontend/src/pages/EntityDetails.tsx
+@@ -1,7 +1,7 @@
+ import React, { useState, useEffect, useRef } from 'react';
+ import { useParams, useNavigate } from 'react-router-dom';
+ import {
+-  ArrowLeft, Paperclip, Users, FileText, Download, Trash2, Plus, Save, ShieldCheck
++  ArrowLeft, Paperclip, Users, FileText, Download, Trash2, Plus, Save
+ } from 'lucide-react';
+ import Select from 'react-select';
+ 
+@@ -13,11 +13,6 @@ interface User {
+   username?: string;
+ }
+ 
+-interface Role {
+-  id: number;
+-  roleName: string;
+-}
+-
+ interface Attachment {
+   id: number;
+   originalFileName: string;
+@@ -61,7 +56,6 @@ export default function EntityDetails() {
+   const [activeTab, setActiveTab] = useState('details');
+   const [currentUser, setCurrentUser] = useState<User | null>(null);
+   const [allUsers, setAllUsers] = useState<User[]>([]);
+-  const [roles, setRoles] = useState<Role[]>([]);
+   const [attachments, setAttachments] = useState<Attachment[]>([]);
+   const [saving, setSaving] = useState(false);
+   const [saveMsg, setSaveMsg] = useState('');
+@@ -92,6 +86,9 @@ export default function EntityDetails() {
+     BPM: '', MIPM: '', SQE: '', ENG: '', PUR: '', DQA: '', ERD: '',
+   });
+ 
++  // Parent project roles (for single-select in PHASE/TASK)
++  const [parentProjectRoles, setParentProjectRoles] = useState<string[]>([]);
++
+   // ?? Phase tracking (for PHASE type) ?????????????????????????
+   const [phaseDbId, setPhaseDbId] = useState<number | null>(null);
+ 
+@@ -105,25 +102,19 @@ export default function EntityDetails() {
+     if (!userJson) { navigate('/login'); return; }
+     setCurrentUser(JSON.parse(userJson));
+     fetchAllUsers();
+-    fetchRoles();
+     fetchEntityData();
+     fetchAttachments();
+   }, [targetType, targetId]);
+ 
+   const fetchAllUsers = async () => {
+-    const res = await fetch('http://localhost:8080/api/users');
++    const res = await fetch((import.meta as any).env.BASE_URL + 'api/users');
+     if (res.ok) setAllUsers(await res.json());
+   };
+ 
+-  const fetchRoles = async () => {
+-    const res = await fetch('http://localhost:8080/api/responsible-roles');
+-    if (res.ok) setRoles(await res.json());
+-  };
+-
+   const fetchEntityData = async () => {
+     try {
+       if (targetType === 'PROJECT') {
+-        const res = await fetch(`http://localhost:8080/api/projects/${targetId}`);
++        const res = await fetch((import.meta as any).env.BASE_URL + `api/projects/${targetId}`);
+         if (res.ok) {
+           const d = await res.json();
+           setForm({
+@@ -157,7 +148,7 @@ export default function EntityDetails() {
+         const projectId = targetId.substring(0, dashIdx);
+         const phaseName = targetId.substring(dashIdx + 1);
+         const res = await fetch(
+-          `http://localhost:8080/api/phases/project/${projectId}/name/${encodeURIComponent(phaseName)}`
++          `/api/phases/project/${projectId}/name/${encodeURIComponent(phaseName)}`
+         );
+         if (res.ok) {
+           const d = await res.json();
+@@ -177,9 +168,16 @@ export default function EntityDetails() {
+             status: d.gateStatus || '',
+             currentPhase: '',
+           });
++
++          // Fetch project roles to populate dropdown
++          const pRes = await fetch((import.meta as any).env.BASE_URL + `api/projects/${projectId}`);
++          if (pRes.ok) {
++            const p = await pRes.json();
++            setParentProjectRoles(p.responsibleRoles ? p.responsibleRoles.split(',').map((r: string) => r.trim()).filter(Boolean) : []);
++          }
+         }
+       } else if (targetType === 'TASK') {
+-        const res = await fetch(`http://localhost:8080/api/tasks/${targetId}`);
++        const res = await fetch((import.meta as any).env.BASE_URL + `api/tasks/${targetId}`);
+         if (res.ok) {
+           const d = await res.json();
+           setForm({
+@@ -197,6 +195,13 @@ export default function EntityDetails() {
+             status: d.status || '',
+             currentPhase: d.phase || '',
+           });
++
++          // Fetch project roles to populate dropdown
++          const pRes = await fetch((import.meta as any).env.BASE_URL + `api/projects/${d.projectId}`);
++          if (pRes.ok) {
++            const p = await pRes.json();
++            setParentProjectRoles(p.responsibleRoles ? p.responsibleRoles.split(',').map((r: string) => r.trim()).filter(Boolean) : []);
++          }
+         }
+       }
+     } catch (e) {
+@@ -206,7 +211,7 @@ export default function EntityDetails() {
+ 
+   const fetchAttachments = async () => {
+     try {
+-      const res = await fetch(`http://localhost:8080/api/attachments?targetType=${targetType}&targetId=${targetId}`);
++      const res = await fetch((import.meta as any).env.BASE_URL + `api/attachments?targetType=${targetType}&targetId=${targetId}`);
+       if (res.ok) setAttachments(await res.json());
+     } catch (e) { console.error(e); }
+   };
+@@ -244,7 +249,7 @@ export default function EntityDetails() {
+           dqaUserId:  roleMembers.DQA  || null,
+           erdUserId:  roleMembers.ERD  || null,
+         };
+-        await fetch(`http://localhost:8080/api/projects/${targetId}`, {
++        await fetch((import.meta as any).env.BASE_URL + `api/projects/${targetId}`, {
+           method: 'PUT', headers: { 'Content-Type': 'application/json' },
+           body: JSON.stringify(body),
+         });
+@@ -260,7 +265,7 @@ export default function EntityDetails() {
+           actualDuration: aDur,
+           comments: form.description,
+         };
+-        await fetch(`http://localhost:8080/api/phases/${phaseDbId}`, {
++        await fetch((import.meta as any).env.BASE_URL + `api/phases/${phaseDbId}`, {
+           method: 'PUT', headers: { 'Content-Type': 'application/json' },
+           body: JSON.stringify(body),
+         });
+@@ -278,7 +283,7 @@ export default function EntityDetails() {
+           status: form.status || null,
+           phase: form.currentPhase || null,
+         };
+-        await fetch(`http://localhost:8080/api/tasks/${targetId}`, {
++        await fetch((import.meta as any).env.BASE_URL + `api/tasks/${targetId}`, {
+           method: 'PUT', headers: { 'Content-Type': 'application/json' },
+           body: JSON.stringify(body),
+         });
+@@ -300,7 +305,7 @@ export default function EntityDetails() {
+     formData.append('targetType', targetType);
+     formData.append('targetId', targetId);
+     if (currentUser) formData.append('uploaderId', String(currentUser.id));
+-    const res = await fetch('http://localhost:8080/api/attachments', { method: 'POST', body: formData });
++    const res = await fetch((import.meta as any).env.BASE_URL + 'api/attachments', { method: 'POST', body: formData });
+     if (res.ok) setAttachments([await res.json(), ...attachments]);
+     else alert('銝憭望?');
+     if (fileInputRef.current) fileInputRef.current.value = '';
+@@ -308,12 +313,12 @@ export default function EntityDetails() {
+ 
+   const handleDeleteAttachment = async (id: number) => {
+     if (!confirm('蝣箏??芷甇日?隞塚?')) return;
+-    const res = await fetch(`http://localhost:8080/api/attachments/${id}`, { method: 'DELETE' });
++    const res = await fetch((import.meta as any).env.BASE_URL + `api/attachments/${id}`, { method: 'DELETE' });
+     if (res.ok) setAttachments(attachments.filter(a => a.id !== id));
+   };
+ 
+   // ?? Multi-select role options ?????????????????????????????????
+-  const roleOptions = roles.map(r => ({ value: r.roleName, label: r.roleName }));
++  const roleOptions = ROLE_KEYS.map(r => ({ value: r, label: r }));
+   const selectedRoles = roleOptions.filter(o => form.responsibleRoles.includes(o.value));
+ 
+ 
+@@ -387,14 +392,7 @@ export default function EntityDetails() {
+             {tab.label}
+           </button>
+         ))}
+-        {/* Role management shortcut */}
+-        <button
+-          onClick={() => navigate('/roles')}
+-          className="ml-auto flex items-center px-4 py-2 my-1.5 text-xs font-bold text-indigo-500 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-all self-center"
+-        >
+-          <ShieldCheck className="w-3.5 h-3.5 mr-1" />
+-          蝬剛風閫摰儔
+-        </button>
++        {/* Role management shortcut removed as per requirement */}
+       </div>
+ 
+       {/* ?? Content ?? */}
+@@ -455,19 +453,34 @@ export default function EntityDetails() {
+                   />
+                 </div>
+ 
+-                {/* Row 4: Responsible Roles (multi-select) */}
++                {/* Row 4: Responsible Roles */}
+                 <div>
+-                  <label className={labelCls}>鞎痊閫 (?航???</label>
+-                  <Select
+-                    isMulti
+-                    options={roleOptions}
+-                    value={selectedRoles}
+-                    onChange={opts => setForm({ ...form, responsibleRoles: opts.map(o => o.value) })}
+-                    placeholder="?豢?鞎痊閫..."
+-                    styles={{ control: (b) => ({ ...b, borderColor: '#e5e7eb', fontSize: '14px' }) }}
+-                    menuPosition="fixed"
+-                    menuPlacement="auto"
+-                  />
++                  <label className={labelCls}>
++                    鞎痊閫 {targetType === 'PROJECT' ? '(?航???' : '(?桅)'}
++                  </label>
++                  {targetType === 'PROJECT' ? (
++                    <Select
++                      isMulti
++                      options={roleOptions}
++                      value={selectedRoles}
++                      onChange={opts => setForm({ ...form, responsibleRoles: opts.map(o => o.value) })}
++                      placeholder="?豢?鞎痊閫..."
++                      styles={{ control: (b) => ({ ...b, borderColor: '#e5e7eb', fontSize: '14px' }) }}
++                      menuPosition="fixed"
++                      menuPlacement="auto"
++                    />
++                  ) : (
++                    <Select
++                      options={parentProjectRoles.map(r => ({ value: r, label: r }))}
++                      value={form.responsibleRoles.length > 0 ? { value: form.responsibleRoles[0], label: form.responsibleRoles[0] } : null}
++                      onChange={o => setForm({ ...form, responsibleRoles: o ? [o.value] : [] })}
++                      isClearable
++                      placeholder="?豢?鞎痊閫..."
++                      styles={{ control: (b) => ({ ...b, borderColor: '#e5e7eb', fontSize: '14px' }) }}
++                      menuPosition="fixed"
++                      menuPlacement="auto"
++                    />
++                  )}
+                 </div>
+ 
+                 {/* Row 5: Planned Start / End / Duration */}
+@@ -653,7 +666,7 @@ export default function EntityDetails() {
+                           </div>
+                         </div>
+                         <div className="flex gap-1">
+-                          <button onClick={() => window.open(`http://localhost:8080/api/attachments/${att.id}/download`, '_blank')}
++                          <button onClick={() => window.open(`/api/attachments/${att.id}/download`, '_blank')}
+                             className="p-2 text-indigo-400 hover:bg-indigo-50 rounded-lg" title="銝?">
+                             <Download className="w-4 h-4" />
+                           </button>
+
+commit 6ab32fbddcaa593d4fbc5cbb7dd3c31be5dae1f9
+Author: Ted_Ho(雿?? <10007327@chicony.local>
+Date:   Mon Apr 6 20:38:26 2026 +0800
+
+    style: fix Select dropdown being cut off by overflow constraints in EntityDetails
+
+diff --git a/frontend/src/pages/EntityDetails.tsx b/frontend/src/pages/EntityDetails.tsx
+index 60ea16c..4db9de8 100644
+--- a/frontend/src/pages/EntityDetails.tsx
++++ b/frontend/src/pages/EntityDetails.tsx
+@@ -398,7 +398,7 @@ export default function EntityDetails() {
+       </div>
+ 
+       {/* ?? Content ?? */}
+-      <main className="flex-1 p-6 overflow-auto">
++      <main className="flex-1 p-6 pb-48 overflow-auto">
+         <div className="max-w-4xl mx-auto space-y-5">
+ 
+           {/* ????DETAILS TAB ????*/}
+@@ -450,6 +450,8 @@ export default function EntityDetails() {
+                     isClearable
+                     placeholder="?豢?鞎痊鈭?.."
+                     styles={{ control: (b) => ({ ...b, borderColor: '#e5e7eb', minHeight: '38px', fontSize: '14px' }) }}
++                    menuPosition="fixed"
++                    menuPlacement="auto"
+                   />
+                 </div>
+ 
+@@ -463,6 +465,8 @@ export default function EntityDetails() {
+                     onChange={opts => setForm({ ...form, responsibleRoles: opts.map(o => o.value) })}
+                     placeholder="?豢?鞎痊閫..."
+                     styles={{ control: (b) => ({ ...b, borderColor: '#e5e7eb', fontSize: '14px' }) }}
++                    menuPosition="fixed"
++                    menuPlacement="auto"
+                   />
+                 </div>
+ 
+@@ -602,6 +606,8 @@ export default function EntityDetails() {
+                         onChange={o => setRoleMembers(prev => ({ ...prev, [role]: o?.value ? Number(o.value) : '' }))}
+                         placeholder="?豢??..."
+                         styles={{ control: (b) => ({ ...b, borderColor: '#e5e7eb', fontSize: '14px' }) }}
++                        menuPosition="fixed"
++                        menuPlacement="auto"
+                       />
+                     </div>
+                   </div>

@@ -1,0 +1,14 @@
+﻿
+A	frontend/src/pages/Role
+Management.tsx
+A	src/main/java/com/pms/c
+ontroller/ResponsibleRole
+Controller.java
+A	src/main/java/com/pms/e
+ntity/ResponsibleRole.jav
+a
+A	src/main/java/com/pms/r
+epository/ResponsibleRole
+Repository.java
+
+

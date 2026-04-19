@@ -19,7 +19,7 @@ export default function RoleManagement() {
 
   const fetchRoles = async () => {
     try {
-      const res = await fetch('http://localhost:8080/api/responsible-roles');
+      const res = await fetch((import.meta as any).env.BASE_URL + 'api/responsible-roles');
       if (res.ok) setRoles(await res.json());
     } catch (e) {
       console.error('Fetch roles error:', e);
@@ -32,7 +32,7 @@ export default function RoleManagement() {
     e.preventDefault();
     if (!newRoleName.trim()) return;
     try {
-      const res = await fetch('http://localhost:8080/api/responsible-roles', {
+      const res = await fetch((import.meta as any).env.BASE_URL + 'api/responsible-roles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ roleName: newRoleName.trim() }),
@@ -49,7 +49,7 @@ export default function RoleManagement() {
   const handleDeleteRole = async (id: number) => {
     if (!confirm('確定要刪除此角色定義？')) return;
     try {
-      const res = await fetch(`http://localhost:8080/api/responsible-roles/${id}`, {
+      const res = await fetch((import.meta as any).env.BASE_URL + `api/responsible-roles/${id}`, {
         method: 'DELETE',
       });
       if (res.ok) fetchRoles();

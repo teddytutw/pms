@@ -93,6 +93,7 @@ public class ProjectController {
             if (projectDetails.getBudget() != null) project.setBudget(projectDetails.getBudget());
             if (projectDetails.getStatus() != null) project.setStatus(projectDetails.getStatus());
             if (projectDetails.getExecutionStatus() != null) project.setExecutionStatus(projectDetails.getExecutionStatus());
+            if (projectDetails.getProjectYear() != null) project.setProjectYear(projectDetails.getProjectYear());
             
             // Role members (only update if provided)
             if (projectDetails.getBpmUserId() != null) project.setBpmUserId(projectDetails.getBpmUserId());
@@ -116,8 +117,22 @@ public class ProjectController {
             if (fields.containsKey("description")) {
                 project.setDescription((String) fields.get("description"));
             }
+            if (fields.containsKey("ownerId")) {
+                Object oid = fields.get("ownerId");
+                if (oid == null) {
+                    project.setOwnerId(null);
+                } else if (oid instanceof Number) {
+                    project.setOwnerId(((Number) oid).longValue());
+                }
+            }
+            if (fields.containsKey("responsibleRoles")) {
+                project.setResponsibleRoles((String) fields.get("responsibleRoles"));
+            }
             if (fields.containsKey("currentPhase")) {
                 project.setCurrentPhase((String) fields.get("currentPhase"));
+            }
+            if (fields.containsKey("projectYear")) {
+                project.setProjectYear((String) fields.get("projectYear"));
             }
             @SuppressWarnings("null")
             final Project saved = projectRepository.save(project);

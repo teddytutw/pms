@@ -4,6 +4,7 @@ import Login from './pages/Login';
 import EntityDetails from './pages/EntityDetails';
 import TeamManagement from './pages/TeamManagement';
 import ProjectHub from './pages/ProjectHub';
+import RoleManagement from './pages/RoleManagement';
 import Settings from './pages/Settings';
 
 // 簡單的路由守衛組件
@@ -60,7 +61,15 @@ function App() {
           } 
         />
         <Route 
-          path="/settings" 
+          path="/roles" 
+          element={
+            <PrivateRoute>
+              <RoleManagement />
+            </PrivateRoute>
+          } 
+        />
+        <Route 
+          path="/settings"  
           element={
             <PrivateRoute>
               <Settings />

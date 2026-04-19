@@ -14,7 +14,7 @@ export default function Login() {
     fetch(`${(import.meta as any).env.BASE_URL}api/auth/config`)
       .then(res => res.json())
       .then(data => setVersion(data.version))
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -54,7 +54,7 @@ export default function Login() {
 
           <div className="flex flex-col items-center justify-center mb-10 pt-12 relative">
             <div className="relative">
-              <img src={(import.meta as any).env.BASE_URL + 'logo.png'} alt="PSM Logo" className="h-20 w-auto object-contain" />
+              <img src={(import.meta as any).env.BASE_URL + 'logo.png'} alt="PMS Logo" className="h-20 w-auto object-contain" />
               {version && (
                 <div className="absolute -bottom-4 -right-2 text-[10px] font-bold text-gray-400 opacity-60 pointer-events-none">
                   v{version}
@@ -83,13 +83,13 @@ export default function Login() {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   className="w-full pl-11 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all"
-                  placeholder="您的登入編號或帳號"
+                  placeholder="您的登入帳號"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">密碼</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">密碼(Password)</label>
               <div className="relative">
                 <Lock className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
                 <input

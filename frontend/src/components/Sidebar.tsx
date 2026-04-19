@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Settings, LogOut, Menu,
   Folder, ChevronDown, ChevronRight, BarChart3, Clock,
-  Calendar, PlayCircle, FileText
+  Calendar, PlayCircle, FileText, ShieldCheck
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -178,16 +178,28 @@ export default function Sidebar({
 
           {/* Teams (Owner Only) */}
           {isOwner && (
-            <li>
-              <button
-                onClick={() => navigate('/team')}
-                className={`w-full flex items-center h-10 px-3 rounded-xl transition-all ${isActive('/team') ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'text-slate-500 hover:bg-slate-50'
-                  }`}
-              >
-                <Users className="w-5 h-5 shrink-0" />
-                <span className={`ml-3 font-bold whitespace-nowrap ${!isSidebarOpen && 'hidden'}`}>Teams</span>
-              </button>
-            </li>
+            <>
+              <li>
+                <button
+                  onClick={() => navigate('/team')}
+                  className={`w-full flex items-center h-10 px-3 rounded-xl transition-all ${isActive('/team') ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'text-slate-500 hover:bg-slate-50'
+                    }`}
+                >
+                  <Users className="w-5 h-5 shrink-0" />
+                  <span className={`ml-3 font-bold whitespace-nowrap ${!isSidebarOpen && 'hidden'}`}>Teams</span>
+                </button>
+              </li>
+              <li>
+                <button
+                  onClick={() => navigate('/roles')}
+                  className={`w-full flex items-center h-10 px-3 rounded-xl transition-all ${isActive('/roles') ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'text-slate-500 hover:bg-slate-50'
+                    }`}
+                >
+                  <ShieldCheck className="w-5 h-5 shrink-0" />
+                  <span className={`ml-3 font-bold whitespace-nowrap ${!isSidebarOpen && 'hidden'}`}>Roles</span>
+                </button>
+              </li>
+            </>
           )}
 
           {/* Settings */}

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Folder, Search, Plus, LayoutGrid, List as ListIcon, 
   ArrowUpRight, Tag, ChevronRight, BarChart3, Clock,
-  CalendarClock, Download, FileSpreadsheet, X
+  CalendarClock, Download, FileSpreadsheet, X, Edit3
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Sidebar from '../components/Sidebar';
@@ -55,7 +55,12 @@ export default function ProjectHub() {
 
   const years = useMemo(() => {
     const y = new Set<string>();
-    projects.forEach(p => p.projectYear && y.add(p.projectYear));
+    // Pre-populate with current range (e.g. 2023 - 2026)
+    const curYear = new Date().getFullYear();
+    for (let i = -1; i <= 2; i++) y.add(String(curYear + i));
+    
+    // Add years from projects
+    projects.forEach(p => p.projectYear && y.add(String(p.projectYear)));
     return Array.from(y).sort().reverse();
   }, [projects]);
 
@@ -237,6 +242,14 @@ export default function ProjectHub() {
                   className="flex items-center gap-2 px-6 py-4 bg-white border-2 border-slate-100 text-slate-900 rounded-xl font-black text-xs hover:bg-slate-50 transition-all shadow-sm"
                  >
                    <Plus className="w-4 h-4 text-indigo-600" /> CREATE PRJ
+                 </button>
+
+                 <button 
+                  disabled={!selectedProjectId}
+                  onClick={() => navigate(`/details/PROJECT/${selectedProjectId}`)}
+                  className="flex items-center gap-2 px-6 py-4 bg-indigo-50 text-indigo-600 rounded-xl font-black text-xs hover:bg-indigo-100 transition-all disabled:opacity-30 shadow-sm"
+                 >
+                   <Edit3 className="w-4 h-4" /> 專案維護
                  </button>
 
                  <button 

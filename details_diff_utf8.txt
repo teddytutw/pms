@@ -1,0 +1,3047 @@
+﻿commit bbad3d323f9c4d529754dc0e52263ffa2e280d40
+Author: Ted_Ho(雿?? <10007327@chicony.local>
+Date:   Sat Apr 18 23:24:26 2026 +0800
+
+    Fix Gantt chart rendering loop, add Gantt MO/YR views, and externalize application YAML
+
+diff --git a/frontend/src/components/WBSView.tsx b/frontend/src/components/WBSView.tsx
+index 63ee3fa..4da82db 100644
+--- a/frontend/src/components/WBSView.tsx
++++ b/frontend/src/components/WBSView.tsx
+@@ -1,9 +1,8 @@
+-import { useState, useRef } from 'react';
+-import { useNavigate } from 'react-router-dom';
++import { useState, useEffect, useRef } from 'react';
+ import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
+ import {
+   FolderOpen, Layers, CheckSquare2, ShieldCheck, ChevronDown, ChevronRight,
+-  GripVertical, Clock, ArrowRightLeft, Circle, CheckCircle, AlertCircle, Pencil, Check, X
++  GripVertical, Clock, Circle, CheckCircle, AlertCircle, Check, X
+ } from 'lucide-react';
+ 
+ // ??????????????????????????????????????????
+@@ -21,13 +20,20 @@ interface WBSTask {
+   actualStartDate?: string;
+   actualEndDate?: string;
+   statusIndicator?: string;
++  displayOrder?: number;
++  parentTaskId?: number | null;
++  predecessors?: string;
++  responsibleRoles?: string;
+ }
+ 
+ interface WBSGate {
+   id: number;
++  projectId: number;
+   phaseName: string;
+   gateStatus?: string;
+   statusIndicator?: string;
++  displayOrder?: number;
++  responsibleRoles?: string;
+ }
+ 
+ interface WBSProject {
+@@ -35,6 +41,7 @@ interface WBSProject {
+   name: string;
+   currentPhase?: string;
+   statusIndicator?: string;
++  responsibleRoles?: string;
+ }
+ 
+ interface WBSUser {
+@@ -50,47 +57,59 @@ interface WBSViewProps {
+   selectedProjectId: number | null;
+   onTaskMoved: (taskId: number, newPhase: string, newProjectId: number) => void;
+   onRenameProject?: (projectId: number, newName: string) => void;
+-  onUpdateTask?: (taskId: number, updates: Partial<WBSTask>) => void;
++  onReorderPhases?: (projectId: number, phaseIds: number[]) => Promise<void>;
++  onSelectTask: (taskId: number) => void;
++  selectedTaskId: number | null;
++  onUpdateTask?: (taskId: number, updates: Partial<WBSTask>) => Promise<void>;
++  onUpdatePhase?: (phaseId: number, updates: Partial<WBSGate>) => Promise<void>;
++  onAdjustTask?: (action: 'indent' | 'outdent' | 'up' | 'down') => Promise<void>;
++  wbsMap: Record<number, string>;
++  criticalPathIds?: Set<string>;
+ }
+ 
+-const calcWorkingDays = (start?: string, end?: string) => {
++const formatDate = (dateStr?: string) => {
++  if (!dateStr) return '-';
++  const date = new Date(dateStr);
++  if (isNaN(date.getTime())) return '-';
++  const m = String(date.getMonth() + 1).padStart(2, '0');
++  const d = String(date.getDate()).padStart(2, '0');
++  const y = date.getFullYear();
++  return `${m}/${d}/${y}`;
++};
++
++const calcWorkingDays = (start?: string, end?: string): number => {
+   if (!start || !end) return 0;
+   const dStart = new Date(start);
+   const dEnd = new Date(end);
+   if (isNaN(dStart.getTime()) || isNaN(dEnd.getTime()) || dEnd < dStart) return 0;
+   let days = 0;
+-  let current = new Date(dStart);
+-  while (current <= dEnd) {
+-    const day = current.getDay();
+-    if (day !== 0 && day !== 6) days++;
+-    current.setDate(current.getDate() + 1);
++  let cur = new Date(dStart);
++  while (cur <= dEnd) {
++    const d = cur.getDay();
++    if (d !== 0 && d !== 6) days++;
++    cur.setDate(cur.getDate() + 1);
+   }
+   return days;
+ };
+ 
+-// ??????????????????????????????????????????
+-//  Constants
+-// ??????????????????????????????????????????
+-const PHASES = ['Initiation', 'Planning', 'Execution', 'Monitoring', 'Closing'] as const;
+-
+ const nodeConfig = {
+-  project: { Icon: FolderOpen,    bg: 'bg-indigo-600', badge: 'bg-indigo-100 text-indigo-700',    label: 'PROJECT' },
++  project: { Icon: FolderOpen,    bg: 'bg-indigo-600', badge: 'bg-indigo-50 text-indigo-700',    label: 'PROJ' },
+   phase:   { Icon: Layers,        bg: 'bg-violet-100', badge: 'bg-violet-100 text-violet-700',    label: 'PHASE'   },
+   task:    { Icon: CheckSquare2,  bg: 'bg-slate-100',  badge: 'bg-slate-100 text-slate-500',      label: 'TASK'    },
+   gate:    { Icon: ShieldCheck,   bg: 'bg-amber-100',  badge: 'bg-amber-100 text-amber-700',      label: 'GATE'    },
+ };
+ 
+ const statusConfig: Record<string, { color: string; Icon: any }> = {
+-  '撌脣???: { color: 'text-green-600 bg-green-50', Icon: CheckCircle },
+-  '?脰?銝?: { color: 'text-blue-600 bg-blue-50',   Icon: Clock       },
+-  '敺齒':   { color: 'text-gray-400 bg-gray-50',   Icon: Circle      },
+-  '?暹?':   { color: 'text-red-600  bg-red-50',    Icon: AlertCircle },
++  'DONE': { color: 'text-green-600 bg-green-50', Icon: CheckCircle },
++  'PROG': { color: 'text-blue-600 bg-blue-50',   Icon: Clock       },
++  'TODO': { color: 'text-gray-400 bg-gray-50',   Icon: Circle      },
++  'OVR':  { color: 'text-red-600  bg-red-50',    Icon: AlertCircle },
+ };
+ 
+ const gateStatusConfig: Record<string, { color: string; label: string }> = {
+-  APPROVED: { color: 'bg-green-100 text-green-700 border-green-200', label: '??撌脫??  },
+-  REJECTED: { color: 'bg-red-100   text-red-700   border-red-200',   label: '??撌脣瘙?  },
+-  PENDING:  { color: 'bg-amber-100 text-amber-700 border-amber-200', label: '??敺祟?? },
++  APPROVED: { color: 'bg-green-100 text-green-700 border-green-200', label: '??  },
++  REJECTED: { color: 'bg-red-100   text-red-700   border-red-200',   label: '??  },
++  PENDING:  { color: 'bg-amber-100 text-amber-700 border-amber-200', label: '?? },
+ };
+ 
+ const indicatorConfig: Record<string, string> = {
+@@ -104,15 +123,12 @@ function StatusIndicator({ status }: { status?: string }) {
+   if (!status) return null;
+   return (
+     <div 
+-      className={`w-2.5 h-2.5 rounded-full ${indicatorConfig[status] || 'bg-gray-300'} shrink-0`} 
++      className={`w-2 h-2 rounded-full ${indicatorConfig[status] || 'bg-gray-300'} shrink-0`} 
+       title={`Status: ${status}`}
+     />
+   );
+ }
+ 
+-// ??????????????????????????????????????????
+-//  Inline Edit Input
+-// ??????????????????????????????????????????
+ function InlineEdit({
+   value,
+   onSave,
+@@ -121,7 +137,6 @@ function InlineEdit({
+ }: { value: string; onSave: (v: string) => void; onCancel: () => void; className?: string }) {
+   const [text, setText] = useState(value);
+   const inputRef = useRef<HTMLInputElement>(null);
+-
+   const commit = () => { if (text.trim()) onSave(text.trim()); else onCancel(); };
+ 
+   return (
+@@ -132,33 +147,255 @@ function InlineEdit({
+         value={text}
+         onChange={e => setText(e.target.value)}
+         onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') onCancel(); }}
+-        className="px-2 py-0.5 rounded text-xs font-bold bg-white border-2 border-indigo-400 outline-none min-w-[120px]"
++        className="px-2 py-0.5 rounded text-[11px] font-bold bg-white border border-indigo-400 outline-none w-full"
+       />
+-      <button onClick={commit} className="p-0.5 rounded bg-green-500 text-white hover:bg-green-600">
+-        <Check className="w-3 h-3" />
+-      </button>
+-      <button onClick={onCancel} className="p-0.5 rounded bg-gray-200 text-gray-600 hover:bg-gray-300">
+-        <X className="w-3 h-3" />
+-      </button>
++      <button onClick={commit} className="p-0.5 rounded bg-indigo-600 text-white"><Check className="w-3 h-3" /></button>
+     </span>
+   );
+ }
+ 
+-// ??????????????????????????????????????????
+-//  Sub-components
+-// ??????????????????????????????????????????
+-
+ function NodeTypeTag({ type }: { type: keyof typeof nodeConfig }) {
+   const cfg = nodeConfig[type];
+   return (
+-    <span className={`text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${cfg.badge}`}>
++    <span className={`text-[8px] font-black uppercase px-1 py-0.5 rounded ${cfg.badge}`}>
+       {cfg.label}
+     </span>
+   );
+ }
+ 
++
++// ??????????????????????????????????????????
++//  Inline Task Detail Panel
++// ??????????????????????????????????????????
++function TaskDetailPanel({
++  task,
++  users,
++  project,
++  wbsMap,
++  criticalPathIds,
++  onUpdateTask,
++  onClose,
++}: {
++  task: WBSTask;
++  users: WBSUser[];
++  project: WBSProject;
++  wbsMap: Record<number, string>;
++  criticalPathIds?: Set<string>;
++  onUpdateTask?: (taskId: number, updates: Partial<WBSTask>) => Promise<void>;
++  onClose: () => void;
++}) {
++  const [titleVal, setTitleVal]   = useState(task.title);
++  const [predVal,  setPredVal]    = useState('');
++
++  // Sync title when task changes
++  useEffect(() => { setTitleVal(task.title); }, [task.id, task.title]);
++
++  // Convert stored T-prefixed preds ??WBS codes for display
++  useEffect(() => {
++    let d = task.predecessors || '';
++    (d.match(/T\d+/g) || []).forEach(m => {
++      const tid = Number(m.substring(1));
++      if (wbsMap[tid]) d = d.replace(m, wbsMap[tid]);
++    });
++    setPredVal(d);
++  }, [task.id, task.predecessors, wbsMap]);
++
++  const savePreds = async () => {
++    const parts = predVal.split(/[,;]/).map(p => p.trim()).filter(Boolean);
++    const parsed = parts.map(part => {
++      const match = part.match(/^([\d.]+)(.*)/);
++      if (match) {
++        const tid = Object.keys(wbsMap).find(k => wbsMap[Number(k)] === match[1]);
++        if (tid) return `T${tid}${match[2]}`;
++      }
++      return part;
++    }).join(', ');
++    await onUpdateTask?.(task.id, { predecessors: parsed });
++  };
++
++  const roles = project.responsibleRoles?.split(',').map(r => r.trim()).filter(Boolean) || [];
++  const isCritical = criticalPathIds?.has(String(task.id));
++  const plDur  = calcWorkingDays(task.plannedStartDate, task.plannedEndDate);
++  const actDur = calcWorkingDays(task.actualStartDate,  task.actualEndDate);
++
++  const fieldLabel = (text: string) => (
++    <label className="block text-[8px] font-black text-gray-400 uppercase tracking-widest mb-1">{text}</label>
++  );
++  const inputCls = "w-full px-2 py-1.5 bg-white border border-gray-200 rounded-lg text-[10px] font-bold outline-none focus:border-indigo-400 transition-colors";
++  const selectCls = "w-full px-2 py-1.5 bg-white border border-gray-200 rounded-lg text-[10px] font-bold outline-none focus:border-indigo-400 transition-colors";
++
++  return (
++    <div
++      className="border-l-2 border-indigo-400 bg-gradient-to-br from-indigo-50/50 via-white to-slate-50/30 px-5 py-4 shadow-inner"
++      onClick={e => e.stopPropagation()}
++    >
++      {/* Header row: badges + close */}
++      <div className="flex items-center justify-between mb-3">
++        <div className="flex items-center gap-2">
++          {wbsMap[task.id] && (
++            <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-[8px] font-black rounded-md">
++              WBS {wbsMap[task.id]}
++            </span>
++          )}
++          {isCritical && (
++            <span className="px-2 py-0.5 bg-red-50 text-red-700 text-[8px] font-black rounded-md border border-red-200">
++              ??CRITICAL PATH
++            </span>
++          )}
++        </div>
++        <button
++          onClick={onClose}
++          className="p-1 rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
++        >
++          <X className="w-3 h-3" />
++        </button>
++      </div>
++
++      <div className="grid grid-cols-4 gap-x-3 gap-y-3">
++        {/* Activity Name ?? col 4 */}
++        <div className="col-span-4">
++          {fieldLabel('Activity Name')}
++          <input
++            type="text"
++            value={titleVal}
++            onChange={e => setTitleVal(e.target.value)}
++            onBlur={e => { if (e.target.value.trim() && e.target.value !== task.title) onUpdateTask?.(task.id, { title: e.target.value.trim() }); }}
++            className={inputCls}
++          />
++        </div>
++
++        {/* Status ?? col 1 */}
++        <div>
++          {fieldLabel('Status')}
++          <select
++            value={task.status || 'TODO'}
++            onChange={e => onUpdateTask?.(task.id, { status: e.target.value })}
++            className={selectCls}
++          >
++            {['TODO', 'PROG', 'DONE', 'OVR'].map(s => (
++              <option key={s} value={s}>{s}</option>
++            ))}
++          </select>
++        </div>
++
++        {/* Owner ?? col 1 */}
++        <div>
++          {fieldLabel('Owner')}
++          <select
++            value={task.assigneeId || ''}
++            onChange={e => onUpdateTask?.(task.id, { assigneeId: e.target.value ? Number(e.target.value) : undefined })}
++            className={selectCls}
++          >
++            <option value="">-</option>
++            {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
++          </select>
++        </div>
++
++        {/* Responsible Role ?? col 2 */}
++        <div className="col-span-2">
++          {fieldLabel('Responsible Role')}
++          <select
++            value={task.responsibleRoles || ''}
++            onChange={e => onUpdateTask?.(task.id, { responsibleRoles: e.target.value })}
++            className={selectCls}
++          >
++            <option value="">- Role -</option>
++            {roles.map(role => <option key={role} value={role}>{role}</option>)}
++          </select>
++        </div>
++
++        {/* PL Start ?? col 1 */}
++        <div>
++          {fieldLabel('PL Start')}
++          <input
++            type="date"
++            value={task.plannedStartDate?.split('T')[0] || ''}
++            onChange={e => onUpdateTask?.(task.id, { plannedStartDate: e.target.value })}
++            className={inputCls}
++          />
++        </div>
++
++        {/* PL End ?? col 1 */}
++        <div>
++          {fieldLabel('PL End')}
++          <input
++            type="date"
++            value={task.plannedEndDate?.split('T')[0] || ''}
++            onChange={e => onUpdateTask?.(task.id, { plannedEndDate: e.target.value })}
++            className={inputCls}
++          />
++        </div>
++
++        {/* ACT Start ?? col 1 */}
++        <div>
++          {fieldLabel('ACT Start')}
++          <input
++            type="date"
++            value={task.actualStartDate?.split('T')[0] || ''}
++            onChange={e => onUpdateTask?.(task.id, { actualStartDate: e.target.value })}
++            className={inputCls}
++          />
++        </div>
++
++        {/* ACT End ?? col 1 */}
++        <div>
++          {fieldLabel('ACT End')}
++          <input
++            type="date"
++            value={task.actualEndDate?.split('T')[0] || ''}
++            onChange={e => onUpdateTask?.(task.id, { actualEndDate: e.target.value })}
++            className={inputCls}
++          />
++        </div>
++
++        {/* Duration summary ?? col 4 */}
++        <div className="col-span-4 flex items-center gap-6 px-1 py-1 bg-white/60 rounded-lg border border-gray-100">
++          <div className="flex items-center gap-1.5">
++            <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest">PL DUR</span>
++            <span className={`text-[11px] font-black ${plDur > 0 ? 'text-indigo-600' : 'text-gray-300'}`}>
++              {plDur > 0 ? `${plDur}d` : '-'}
++            </span>
++          </div>
++          <div className="w-px h-3 bg-gray-200" />
++          <div className="flex items-center gap-1.5">
++            <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest">ACT DUR</span>
++            <span className={`text-[11px] font-black ${actDur > 0 ? 'text-green-600' : 'text-gray-300'}`}>
++              {actDur > 0 ? `${actDur}d` : '-'}
++            </span>
++          </div>
++          {plDur > 0 && actDur > 0 && (
++            <>
++              <div className="w-px h-3 bg-gray-200" />
++              <div className="flex items-center gap-1.5">
++                <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest">VARIANCE</span>
++                <span className={`text-[11px] font-black ${actDur > plDur ? 'text-red-500' : 'text-green-600'}`}>
++                  {actDur > plDur ? `+${actDur - plDur}d` : actDur < plDur ? `-${plDur - actDur}d` : '0d'}
++                </span>
++              </div>
++            </>
++          )}
++        </div>
++
++        {/* Predecessors ?? col 4 */}
++        <div className="col-span-4">
++          {fieldLabel('Predecessors (WBS codes e.g. 1.1, 1.2)')}
++          <input
++            type="text"
++            value={predVal}
++            onChange={e => setPredVal(e.target.value)}
++            onBlur={savePreds}
++            onKeyDown={e => { if (e.key === 'Enter') savePreds(); }}
++            placeholder="e.g. 1.1, 2.3"
++            className={inputCls}
++          />
++        </div>
++      </div>
++    </div>
++  );
++}
++
+ // ??????????????????????????????????????????
+-//  Main Component
++//  Main WBSView
+ // ??????????????????????????????????????????
+ export default function WBSView({
+   projects,
+@@ -168,27 +405,63 @@ export default function WBSView({
+   selectedProjectId,
+   onTaskMoved,
+   onRenameProject,
++  onReorderPhases,
++  onSelectTask,
++  selectedTaskId,
+   onUpdateTask,
++  onUpdatePhase,
++  onAdjustTask,
++  wbsMap,
++  criticalPathIds,
+ }: WBSViewProps) {
+-  const navigate = useNavigate();
+-  const [expandedPhases,    setExpandedPhases]    = useState<Record<string, boolean>>(() =>
+-    PHASES.reduce((a, p) => ({ ...a, [p]: true }), {})
+-  );
++  const containerRef = useRef<HTMLDivElement>(null);
++  const [expandedPhases,    setExpandedPhases]    = useState<Record<string, boolean>>({});
+   const [expandedProjects,  setExpandedProjects]  = useState<Record<number, boolean>>(() =>
+-    projects.reduce((a, p) => ({ ...a, [p.id]: true }), {} as Record<number, boolean>)
++    (projects || []).reduce((a, p) => ({ ...a, [p.id]: true }), {} as Record<number, boolean>)
+   );
+-
+-  // Editing state: "project-{id}", "task-{id}", "phase-{phase}"
+   const [editingKey, setEditingKey] = useState<string | null>(null);
+ 
++  useEffect(() => {
++    if (selectedTaskId && containerRef.current) {
++      containerRef.current.focus();
++    }
++  }, [selectedTaskId]);
++
++  const getTaskLevel = (task: WBSTask) => {
++    let level = 0;
++    let curr = task;
++    while (curr.parentTaskId) {
++      const parent = tasks.find(t => t.id === curr.parentTaskId);
++      if (!parent || level > 5) break;
++      curr = parent;
++      level++;
++    }
++    return level;
++  };
+ 
++  const handleKeyboardAdjustment = async (e: React.KeyboardEvent) => {
++    if (!selectedTaskId || editingKey || !onAdjustTask) return;
++    if (e.key === 'ArrowRight') await onAdjustTask('indent');
++    else if (e.key === 'ArrowLeft') await onAdjustTask('outdent');
++    else if (e.key === 'ArrowUp') await onAdjustTask('up');
++    else if (e.key === 'ArrowDown') await onAdjustTask('down');
++  };
+ 
+   const visibleProjects = selectedProjectId
+-    ? projects.filter(p => p.id === selectedProjectId)
+-    : projects;
++    ? (projects || []).filter(p => p.id == selectedProjectId)
++    : (projects || []);
+ 
+   const handleDragEnd = (result: DropResult) => {
+     if (!result.destination) return;
++    if (result.type === 'PHASE_LIST') {
++      const projectId = parseInt(result.source.droppableId.split('___')[1], 10);
++      const projectGatesArr = (gates || []).filter(g => g.projectId === projectId).sort((a, b) => (a.displayOrder ?? a.id) - (b.displayOrder ?? b.id));
++      const newPhases = Array.from(projectGatesArr);
++      const [reorderedItem] = newPhases.splice(result.source.index, 1);
++      newPhases.splice(result.destination.index, 0, reorderedItem);
++      if (onReorderPhases) onReorderPhases(projectId, newPhases.map(g => g.id));
++      return;
++    }
+     const [, newPhase, newProjectIdStr] = result.destination.droppableId.split('___');
+     const taskId      = parseInt(result.draggableId, 10);
+     const newProjectId = parseInt(newProjectIdStr, 10);
+@@ -197,322 +470,333 @@ export default function WBSView({
+ 
+   return (
+     <DragDropContext onDragEnd={handleDragEnd}>
+-      <div className="space-y-2 font-sans text-sm select-none">
+-        {visibleProjects.map(project => {
+-          const projectTasks  = tasks.filter(t => t.projectId === project.id);
+-          const projectGates  = gates; // all fetched gates belong to current project
+-          const isExpanded    = expandedProjects[project.id] !== false;
+-          const editKey       = `project-${project.id}`;
+-
+-          return (
+-            <div key={project.id} className="rounded-2xl border border-gray-200 overflow-hidden shadow-sm bg-white mb-4">
+-
+-              {/* ?? PROJECT ROW ?? */}
+-              <div className="flex items-center gap-3 px-5 py-4 bg-white border-b border-gray-100 border-l-4 border-l-indigo-600 group hover:bg-gray-50 transition-colors">
+-                <button
+-                  onClick={() => setExpandedProjects(p => ({ ...p, [project.id]: !isExpanded }))}
+-                  className="shrink-0 text-gray-400 hover:text-indigo-600 transition-colors"
+-                >
+-                  {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
+-                </button>
+-                <div className="h-7 w-7 rounded-lg bg-indigo-50 flex items-center justify-center shrink-0">
+-                  <FolderOpen className="w-4 h-4 text-indigo-600" />
++      <div ref={containerRef} className="font-sans text-[11px] select-none outline-none" tabIndex={0} onKeyDown={handleKeyboardAdjustment}>
++        {/* Header */}
++        <div className="flex items-center px-4 py-1.5 bg-gray-50 border-b border-gray-100 font-black text-gray-400 uppercase tracking-widest text-[8px] sticky top-0 z-10">
++          <div className="w-14 shrink-0">WBS</div>
++          <div className="flex-1 min-w-[150px]">Activity Name</div>
++          <div className="w-16 shrink-0 text-center">Status</div>
++          <div className="w-20 shrink-0 text-center">Role</div>
++          <div className="w-20 shrink-0 text-center">Owner</div>
++          <div className="w-32 shrink-0 text-right">Schedule</div>
++          <div className="w-14 shrink-0 text-right">DUR(d)</div>
++          <div className="w-24 shrink-0 text-right">Predecessors</div>
++        </div>
++
++        <div className="min-w-fit">
++          {(visibleProjects || []).map(project => {
++            const projectTasks = (tasks || []).filter(t => t.projectId == project.id);
++            const projectGates = (gates || []).filter(g => g.projectId == project.id);
++            const isExpanded = expandedProjects[project.id] !== false;
++            const editKey = `project-${project.id}`;
++
++            // Identify tasks that aren't in any of the explicit phases/gates
++            const phaseGateNames = new Set(projectGates.map(g => g.phaseName));
++            const tasksWithoutExplicitGate = projectTasks.filter(t => !t.phase || !phaseGateNames.has(t.phase));
++
++            return (
++              <div key={project.id} className="border-b border-gray-100">
++                <div className="flex items-center px-4 py-1.5 hover:bg-gray-50 bg-white group border-l-4 border-l-indigo-600">
++                  <button onClick={() => setExpandedProjects(p => ({ ...p, [project.id]: !isExpanded }))} className="w-14 shrink-0 text-gray-400 hover:text-indigo-600 flex justify-center">
++                    {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
++                  </button>
++                  <div className="flex-1 min-w-[150px] flex items-center gap-2 overflow-hidden">
++                    <FolderOpen className="w-3 h-3 text-indigo-600 shrink-0" />
++                    {editingKey === editKey ? (
++                      <InlineEdit value={project.name} onSave={val => { onRenameProject?.(project.id, val); setEditingKey(null); }} onCancel={() => setEditingKey(null)} />
++                    ) : (
++                      <span className="font-black text-indigo-900 truncate" onDoubleClick={() => setEditingKey(editKey)}>{project.name}</span>
++                    )}
++                  </div>
++                  <div className="w-16 shrink-0 flex justify-center"><StatusIndicator status={project.statusIndicator} /></div>
++                  <div className="w-20 shrink-0 flex flex-wrap gap-0.5 justify-center overflow-hidden h-6 items-center">
++                    {project.responsibleRoles?.split(',').map(r => r.trim()).filter(Boolean).map(role => (
++                      <span key={role} className="text-[7px] bg-indigo-50 text-indigo-600 px-1 rounded-sm border border-indigo-100 uppercase font-black">{role}</span>
++                    ))}
++                  </div>
++                  <div className="w-20 shrink-0"></div>
++                  <div className="w-32 shrink-0 text-right"><NodeTypeTag type="project" /></div>
++                  <div className="w-14 shrink-0 text-right text-[9px] font-black text-indigo-600 pr-1">
++                    {(() => {
++                      if (!projectTasks.length) return '-';
++                      const tds = projectTasks.filter(t => t.plannedStartDate && t.plannedEndDate);
++                      if (!tds.length) return '-';
++                      const minS = [...tds].sort((a,b) => a.plannedStartDate!.localeCompare(b.plannedStartDate!))[0].plannedStartDate!;
++                      const maxE = [...tds].sort((a,b) => b.plannedEndDate!.localeCompare(a.plannedEndDate!))[0].plannedEndDate!;
++                      const d = calcWorkingDays(minS, maxE);
++                      return d > 0 ? `${d}d` : '-';
++                    })()}
++                  </div>
++                  <div className="w-24 shrink-0"></div>
+                 </div>
+ 
+-                {/* Project name / inline edit */}
+-                {editingKey === editKey ? (
+-                  <InlineEdit
+-                    value={project.name}
+-                    onSave={name => { onRenameProject?.(project.id, name); setEditingKey(null); }}
+-                    onCancel={() => setEditingKey(null)}
+-                    className="flex-1"
+-                  />
+-                ) : (
+-                  <span
+-                    className="font-bold text-base tracking-wide flex-1 cursor-pointer text-gray-800 group-hover:text-indigo-700 transition-colors truncate"
+-                    onDoubleClick={() => setEditingKey(editKey)}
+-                    title="??隞乩耨?孵?蝔?
+-                  >
+-                    {project.name}
+-                  </span>
+-                )}
+-
+-                <button
+-                  onClick={() => setEditingKey(editingKey === editKey ? null : editKey)}
+-                  className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-500 transition-all shrink-0"
+-                  title="靽格?迂"
+-                >
+-                  <Pencil className="w-3.5 h-3.5" />
+-                </button>
+-                <NodeTypeTag type="project" />
+-                <span className="text-xs bg-gray-100 text-gray-600 px-2.5 py-1 rounded-md font-bold shrink-0">
+-                  {projectTasks.length} ??-                </span>
+-                <StatusIndicator status={project.statusIndicator} />
+-                {project.currentPhase && (
+-                  <span className="text-xs bg-indigo-50 border border-indigo-100 text-indigo-700 px-2.5 py-1 rounded-md font-bold shrink-0 hidden md:inline-block">
+-                    ??{project.currentPhase}
+-                  </span>
+-                )}
+-              </div>
+-
+-              {/* ?? PHASES ?? */}
+-              {isExpanded && (
+-                <div className="divide-y divide-gray-50">
+-                  {PHASES.map((phase, phaseIdx) => {
+-                    const phaseTasks    = projectTasks.filter(t => t.phase === phase);
+-                    const phaseGates    = projectGates.filter(g => g.phaseName === phase);
+-                    const phaseExpanded = expandedPhases[phase] !== false;
+-                    const completedCount = phaseTasks.filter(t => t.status === '撌脣???).length;
+-                    const phaseEditKey  = `phase-${project.id}-${phase}`;
+-
+-                    return (
+-                      <div key={phase}>
+-                        {/* Phase Header */}
+-                        <div className="flex items-center gap-3 px-6 py-3.5 bg-white hover:bg-gray-50 border-b border-gray-100 group transition-colors relative">
+-                          <div className="absolute left-0 top-0 bottom-0 w-1 bg-violet-200 opacity-50 group-hover:opacity-100 transition-opacity"></div>
+-                          <button onClick={() => setExpandedPhases(p => ({ ...p, [phase]: !phaseExpanded }))} className="shrink-0 text-gray-400 hover:text-violet-600 transition-colors">
+-                            {phaseExpanded
+-                              ? <ChevronDown  className="w-4 h-4" />
+-                              : <ChevronRight className="w-4 h-4" />}
+-                          </button>
+-                          <div className="h-6 w-6 rounded-lg bg-violet-50 flex items-center justify-center shrink-0">
+-                            <Layers className="w-3.5 h-3.5 text-violet-600" />
+-                          </div>
++                {isExpanded && (
++                  <Droppable droppableId={`project-phases___${project.id}`} type="PHASE_LIST">
++                    {(phaseListProvided) => (
++                      <div ref={phaseListProvided.innerRef} {...phaseListProvided.droppableProps}>
++                        {projectGates.sort((a,b) => (a.displayOrder ?? a.id)-(b.displayOrder ?? b.id)).map((gate, phaseIdx) => {
++                          const phase = gate.phaseName;
++                          const phaseTasks = projectTasks
++                            .filter(t => t.phase === phase)
++                            .sort((a, b) => (a.displayOrder ?? a.id) - (b.displayOrder ?? b.id));
++                          const phaseExpanded = expandedPhases[phase] !== false;
++
++                          return (
++                            <Draggable key={gate.id.toString()} draggableId={`phase-drag___${gate.id}`} index={phaseIdx}>
++                              {(dragProvided, dragSnapshot) => (
++                                <div ref={dragProvided.innerRef} {...dragProvided.draggableProps}>
++                                  <div className={`flex items-center px-4 py-1 hover:bg-gray-50 bg-gray-50/20 group border-b border-gray-50 ${dragSnapshot.isDragging ? 'opacity-50' : ''}`}>
++                                    <div className="w-14 shrink-0 flex items-center pl-1">
++                                      <div {...dragProvided.dragHandleProps} className="opacity-0 group-hover:opacity-100 text-gray-300 w-4">
++                                        <GripVertical className="w-3 h-3" />
++                                      </div>
++                                      <button onClick={() => setExpandedPhases(p => ({ ...p, [phase]: !phaseExpanded }))} className="text-gray-400 w-6">
++                                        {phaseExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
++                                      </button>
++                                      <div className="text-[9px] font-black text-gray-500 w-full text-center">{phaseIdx + 1}</div>
++                                    </div>
++                                    <div className="flex-1 min-w-[150px] flex items-center gap-2 overflow-hidden font-bold text-gray-700">
++                                       <Layers className="w-3 h-3 text-violet-600 shrink-0" />
++                                       <span className="truncate">{phase}</span>
++                                    </div>
++                                    <div className="w-16 shrink-0 flex justify-center"><StatusIndicator status={gate.statusIndicator} /></div>
++                                    <div className="w-20 shrink-0 px-1">
++                                      <select 
++                                        className="w-full bg-white border border-gray-200 rounded text-[9px] font-bold outline-none focus:border-indigo-400 py-0.5"
++                                        value={gate.responsibleRoles || ''}
++                                        onChange={(e) => onUpdatePhase?.(gate.id, { responsibleRoles: e.target.value })}
++                                        onClick={e => e.stopPropagation()}
++                                      >
++                                        <option value="">- Role -</option>
++                                        {project.responsibleRoles?.split(',').map(r => r.trim()).filter(Boolean).map(role => (
++                                          <option key={role} value={role}>{role}</option>
++                                        ))}
++                                      </select>
++                                    </div>
++                                    <div className="w-20 shrink-0"></div>
++                                    <div className="w-32 shrink-0 text-right"><NodeTypeTag type="phase" /></div>
++                                    <div className="w-14 shrink-0 text-right text-[9px] font-black text-violet-600 pr-1">
++                                       {(() => {
++                                         const tds = phaseTasks.filter(t => t.plannedStartDate && t.plannedEndDate);
++                                         if (!tds.length) return '-';
++                                         const minS = [...tds].sort((a,b) => a.plannedStartDate!.localeCompare(b.plannedStartDate!))[0].plannedStartDate!;
++                                         const maxE = [...tds].sort((a,b) => b.plannedEndDate!.localeCompare(a.plannedEndDate!))[0].plannedEndDate!;
++                                         const d = calcWorkingDays(minS, maxE);
++                                         return d > 0 ? `${d}d` : '-';
++                                       })()}
++                                     </div>
++                                     <div className="w-24 shrink-0"></div>
++                                  </div>
+ 
+-                          <span className="font-bold text-gray-800 text-[13px] tracking-wide flex-1">
+-                            Phase {phaseIdx + 1}嚗phase}
+-                          </span>
+-
+-                          <button
+-                            onClick={() => setEditingKey(editingKey === phaseEditKey ? null : phaseEditKey)}
+-                            className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-violet-100 text-violet-500 transition-all shrink-0"
+-                            title="靽格?迂"
+-                          >
+-                            <Pencil className="w-3.5 h-3.5" />
+-                          </button>
+-                          <button
+-                            onClick={(e) => { e.stopPropagation(); navigate(`/details/PHASE/${project.id}-${phase}`); }}
+-                            className="opacity-0 group-hover:opacity-100 text-xs bg-white border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg font-bold hover:bg-gray-50 hover:text-violet-600 transition-all ml-2 shrink-0 shadow-sm"
+-                          >
+-                            閰喟敦蝬剛風
+-                          </button>
+-
+-                          <NodeTypeTag type="phase" />
+-                          <StatusIndicator status={phaseGates[0]?.statusIndicator} />
+-                          <div className="hidden sm:flex items-center gap-2.5 shrink-0 pl-2">
+-                            <div className="w-20 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+-                              <div
+-                                className="h-full bg-violet-500 rounded-full transition-all"
+-                                style={{ width: phaseTasks.length > 0 ? `${(completedCount / phaseTasks.length) * 100}%` : '0%' }}
+-                              />
++                                  {phaseExpanded && (
++                                    <Droppable droppableId={`phase___${phase}___${project.id}`}>
++                                      {(provided, snapshot) => (
++                                        <div ref={provided.innerRef} {...provided.droppableProps} className={snapshot.isDraggingOver ? 'bg-indigo-50/20' : ''}>
++                                          {phaseTasks.map((task, idx) => {
++                                            const status = task.status === '撌脣??? ? 'DONE' : (task.status === '?脰?銝? ? 'PROG' : (task.status || 'TODO'));
++                                            const isSelected = selectedTaskId === task.id;
++
++                                            // Format Predecessors for display
++                                            let displayPreds = task.predecessors || '';
++                                            const matches = displayPreds.match(/T\d+/g);
++                                            if (matches) {
++                                                matches.forEach(m => {
++                                                    const tid = Number(m.substring(1));
++                                                    if (wbsMap[tid]) displayPreds = displayPreds.replace(m, wbsMap[tid]);
++                                                });
++                                            }
++
++                                            return (
++                                              <Draggable key={task.id} draggableId={String(task.id)} index={idx}>
++                                                {(dragProvided, dragSnapshot) => (
++                                                  <div
++                                                    ref={dragProvided.innerRef}
++                                                    {...dragProvided.draggableProps}
++                                                  >
++                                                    {/* ?? Task Row ?? */}
++                                                    <div
++                                                      onClick={() => onSelectTask(task.id)}
++                                                      className={`flex items-center px-4 py-1 border-b border-gray-50 cursor-pointer ${
++                                                        isSelected ? 'bg-indigo-50 ring-1 ring-indigo-200 shadow-sm' : 'hover:bg-gray-50 bg-white'
++                                                      } ${dragSnapshot.isDragging ? 'shadow-lg z-50 bg-white !left-0 !top-0' : ''}`}
++                                                      style={{ paddingLeft: `${48 + getTaskLevel(task) * 16}px` }}
++                                                    >
++                                                      <div className="w-14 shrink-0 flex items-center pr-2">
++                                                         <div {...dragProvided.dragHandleProps} className="opacity-0 group-hover:opacity-100 text-gray-300 w-4">
++                                                            <GripVertical className="w-3 h-3" />
++                                                         </div>
++                                                         <div className="text-[9px] font-black text-gray-500 w-full text-center">{wbsMap[task.id]}</div>
++                                                      </div>
++                                                      <div className="flex-1 min-w-[150px] flex items-center gap-2 truncate">
++                                                         <div className={`h-1 w-1 rounded-full shrink-0 ${status === 'DONE' ? 'bg-green-500' : (status === 'PROG' ? 'bg-blue-500' : 'bg-gray-300')}`} />
++                                                         <span className="font-medium text-gray-800 truncate">{task.title}</span>
++                                                      </div>
++                                                      <div className="w-16 shrink-0 flex justify-center">
++                                                         <span className={`text-[8px] font-black px-1 py-0.5 rounded-sm uppercase ${(statusConfig[status] || statusConfig['TODO']).color.replace('text-', 'border-').split(' ')[0]} border`}>
++                                                           {status}
++                                                         </span>
++                                                      </div>
++                                                      <div className="w-20 shrink-0 px-1">
++                                                        <select 
++                                                          className="w-full bg-white border border-gray-200 rounded text-[9px] font-bold outline-none focus:border-indigo-400 py-0.5"
++                                                          value={task.responsibleRoles || ''}
++                                                          onChange={(e) => onUpdateTask?.(task.id, { responsibleRoles: e.target.value })}
++                                                          onClick={e => e.stopPropagation()}
++                                                        >
++                                                          <option value="">- Role -</option>
++                                                          {project.responsibleRoles?.split(',').map(r => r.trim()).filter(Boolean).map(role => (
++                                                            <option key={role} value={role}>{role}</option>
++                                                          ))}
++                                                        </select>
++                                                      </div>
++                                                      <div className="w-20 shrink-0 text-center truncate text-gray-500 text-[9px] font-bold">
++                                                         {users.find(u => u.id === task.assigneeId)?.name || '-'}
++                                                      </div>
++                                                      <div className="w-32 shrink-0 text-right text-[8px] text-gray-400 font-black">
++                                                         {formatDate(task.plannedStartDate)} - {formatDate(task.plannedEndDate)}
++                                                      </div>
++                                                      <div className="w-14 shrink-0 text-right pr-1">
++                                                         {(() => {
++                                                           const d = calcWorkingDays(task.plannedStartDate, task.plannedEndDate);
++                                                           return <span className={`text-[9px] font-black ${d > 0 ? 'text-indigo-600' : 'text-gray-300'}`}>{d > 0 ? `${d}d` : '-'}</span>;
++                                                         })()}
++                                                       </div>
++                                                       <div className="w-24 shrink-0 text-right text-[10px] text-gray-500 font-bold px-2 truncate">
++                                                         {displayPreds || '-'}
++                                                       </div>
++                                                    </div>
++
++                                                    {/* ?? Inline Detail Panel (expands when selected) ?? */}
++                                                    {isSelected && (
++                                                      <TaskDetailPanel
++                                                        task={task}
++                                                        users={users}
++                                                        project={project}
++                                                        wbsMap={wbsMap}
++                                                        criticalPathIds={criticalPathIds}
++                                                        onUpdateTask={onUpdateTask}
++                                                        onClose={() => onSelectTask(task.id)} // toggle off
++                                                      />
++                                                    )}
++                                                  </div>
++                                                )}
++                                              </Draggable>
++                                            );
++                                          })}
++                                          {provided.placeholder}
++                                        </div>
++                                      )}
++                                    </Droppable>
++                                  )}
++                                  
++                                  {/* Gate Row */}
++                                  <div className="flex items-center px-4 py-1 ml-8 border-l border-dashed border-amber-200">
++                                      <ShieldCheck className="w-2.5 h-2.5 text-amber-500 mr-2" />
++                                      <span className="flex-1 text-[9px] font-black text-amber-900 border-b border-amber-100/50 pb-0.5 truncate uppercase">Gate: {phase}</span>
++                                      <span className={`text-[8px] font-black ${gateStatusConfig[gate.gateStatus || 'PENDING'].color} px-1 rounded`}>
++                                        {gateStatusConfig[gate.gateStatus || 'PENDING'].label}
++                                      </span>
++                                  </div>
++                                </div>
++                              )}
++                            </Draggable>
++                          );
++                        })}
++                        
++                        {/* Common Tasks / Unassigned Tasks Section */}
++                        {tasksWithoutExplicitGate.length > 0 && (
++                          <div className="mt-4">
++                            <div className="flex items-center px-4 py-1 bg-slate-100/50 border-b border-slate-200">
++                              <div className="w-14 shrink-0 flex items-center justify-center pl-1">
++                                <button onClick={() => setExpandedPhases(p => ({ ...p, 'Common': !expandedPhases['Common'] }))} className="text-slate-400 w-6">
++                                  {expandedPhases['Common'] !== false ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
++                                </button>
++                              </div>
++                              <div className="flex-1 flex items-center gap-2 font-black text-[10px] text-slate-500 uppercase tracking-wider">
++                                <Layers className="w-3 h-3 text-slate-400" />
++                                Common Tasks (Unassigned)
++                              </div>
+                             </div>
+-                            <span className="text-xs text-gray-500 font-bold w-8 text-right">
+-                              {completedCount}/{phaseTasks.length}
+-                            </span>
+-                          </div>
+-                        </div>
+-
+-                        {/* Tasks (Droppable) */}
+-                        {phaseExpanded && (
+-                          <Droppable droppableId={`phase___${phase}___${project.id}`}>
+-                            {(provided, snapshot) => (
+-                              <div
+-                                ref={provided.innerRef}
+-                                {...provided.droppableProps}
+-                                className={`transition-colors ${
+-                                  snapshot.isDraggingOver ? 'bg-indigo-50/30' : ''
+-                                }`}
+-                              >
+-                                {phaseTasks.map((task, idx) => {
+-                                  const taskEditKey  = `task-${task.id}`;
++                            {(expandedPhases['Common'] !== false) && (
++                              <div className="bg-white/30">
++                                {tasksWithoutExplicitGate.map((task) => {
++                                  const status = task.status === '撌脣??? ? 'DONE' : (task.status === '?脰?銝? ? 'PROG' : (task.status || 'TODO'));
++                                  const isSelected = selectedTaskId === task.id;
++                                  
++                                  let displayPreds = task.predecessors || '';
++                                  const matches = displayPreds.match(/T\d+/g);
++                                  if (matches) {
++                                      matches.forEach(m => {
++                                          const tid = Number(m.substring(1));
++                                          if (wbsMap[tid]) displayPreds = displayPreds.replace(m, wbsMap[tid]);
++                                      });
++                                  }
+ 
+                                   return (
+-                                    <Draggable key={task.id} draggableId={String(task.id)} index={idx}>
+-                                      {(dragProvided, dragSnapshot) => (
+-                                        <div
+-                                          ref={dragProvided.innerRef}
+-                                          {...dragProvided.draggableProps}
+-                                          className={`flex items-center gap-3 px-4 py-3 border-b border-gray-50 transition-all group/task relative ${
+-                                            dragSnapshot.isDragging
+-                                              ? 'bg-white border-indigo-200 shadow-xl rotate-[1deg] scale-[1.02] rounded-xl z-50'
+-                                              : 'bg-white hover:bg-gray-50 hover:shadow-[0_2px_8px_-4px_rgba(0,0,0,0.05)]'
+-                                          }`}
+-                                        >
+-                                          {/* Drag handle */}
+-                                          <div
+-                                            {...dragProvided.dragHandleProps}
+-                                            className="text-gray-200 group-hover/task:text-gray-400 transition-colors cursor-grab active:cursor-grabbing shrink-0"
+-                                            title="?蝘餃??喳隞?Phase"
+-                                          >
+-                                            <GripVertical className="w-4 h-4" />
+-                                          </div>
+-
+-                                          {/* Title / inline edit */}
+-                                          {editingKey === taskEditKey ? (
+-                                            <InlineEdit
+-                                              value={task.title}
+-                                              onSave={title => { onUpdateTask?.(task.id, { title }); setEditingKey(null); }}
+-                                              onCancel={() => setEditingKey(null)}
+-                                              className="flex-1"
+-                                            />
+-                                          ) : (
+-                                            <span
+-                                              className="flex-1 min-w-0 text-[13px] font-semibold text-gray-800 truncate cursor-pointer hover:text-indigo-600 transition-colors"
+-                                              onDoubleClick={() => setEditingKey(taskEditKey)}
+-                                              title="??隞乩耨?孵?蝔?
+-                                            >
+-                                              {task.title}
+-                                            </span>
+-                                          )}
+-
+-                                          <StatusIndicator status={task.statusIndicator} />
+-
+-                                          {/* Edit btn */}
+-                                          {editingKey !== taskEditKey && (
+-                                            <div className="flex gap-1 shrink-0 ml-2">
+-                                              <button
+-                                                onClick={e => { e.stopPropagation(); setEditingKey(taskEditKey); }}
+-                                                className="opacity-0 group-hover/task:opacity-100 p-1.5 rounded-lg hover:bg-indigo-100 text-indigo-400 transition-all"
+-                                                title="靽格隞餃??迂"
+-                                              >
+-                                                <Pencil className="w-3.5 h-3.5" />
+-                                              </button>
+-                                              <button
+-                                                onClick={(e) => { e.stopPropagation(); navigate(`/details/TASK/${task.id}`); }}
+-                                                className="opacity-0 group-hover/task:opacity-100 text-[10px] bg-indigo-50 border border-indigo-100 text-indigo-600 px-2 rounded-lg font-bold hover:bg-indigo-100 transition-all"
+-                                              >
+-                                                閰喟敦蝬剛風
+-                                              </button>
+-                                            </div>
+-                                          )}
+-
+-                                          {/* Editable Data Columns */}
+-                                          <div className="hidden lg:flex items-center shrink-0 text-[10px] divide-x divide-gray-100">
+-                                            {/* Planned */}
+-                                            <div className="flex flex-col px-4 items-center justify-center min-w-[140px]">
+-                                              <div className="flex items-center gap-1.5 opacity-60 group-hover/task:opacity-100 transition-opacity">
+-                                                <input
+-                                                  type="date"
+-                                                  value={task.plannedStartDate || ''}
+-                                                  onChange={e => onUpdateTask?.(task.id, { plannedStartDate: e.target.value })}
+-                                                  className="w-[100px] bg-transparent border border-transparent hover:border-gray-200 rounded-md px-1 py-1 text-center text-[11px] font-medium text-gray-600 outline-none focus:border-indigo-400 transition-colors"
+-                                                />
+-                                                <span className="text-gray-300">-</span>
+-                                                <input
+-                                                  type="date"
+-                                                  value={task.plannedEndDate || ''}
+-                                                  onChange={e => onUpdateTask?.(task.id, { plannedEndDate: e.target.value })}
+-                                                  className="w-[100px] bg-transparent border border-transparent hover:border-gray-200 rounded-md px-1 py-1 text-center text-[11px] font-medium text-gray-600 outline-none focus:border-indigo-400 transition-colors"
+-                                                />
+-                                                <span className="text-[10px] text-gray-400 font-semibold w-12 text-right">{calcWorkingDays(task.plannedStartDate, task.plannedEndDate)} 憭?/span>
+-                                              </div>
+-                                            </div>
+-
+-                                            {/* Actual */}
+-                                            <div className="flex flex-col px-4 items-center justify-center min-w-[140px]">
+-                                              <div className="flex items-center gap-1.5 opacity-60 group-hover/task:opacity-100 transition-opacity">
+-                                                <input
+-                                                  type="date"
+-                                                  value={task.actualStartDate || ''}
+-                                                  onChange={e => onUpdateTask?.(task.id, { actualStartDate: e.target.value })}
+-                                                  className="w-[100px] bg-transparent border border-transparent hover:border-gray-200 rounded-md px-1 py-1 text-center text-[11px] font-medium text-gray-600 outline-none focus:border-indigo-400 transition-colors"
+-                                                />
+-                                                <span className="text-gray-300">-</span>
+-                                                <input
+-                                                  type="date"
+-                                                  value={task.actualEndDate || ''}
+-                                                  onChange={e => onUpdateTask?.(task.id, { actualEndDate: e.target.value })}
+-                                                  className="w-[100px] bg-transparent border border-transparent hover:border-gray-200 rounded-md px-1 py-1 text-center text-[11px] font-medium text-gray-600 outline-none focus:border-indigo-400 transition-colors"
+-                                                />
+-                                                <span className="text-[10px] text-gray-400 font-semibold w-12 text-right">{calcWorkingDays(task.actualStartDate, task.actualEndDate)} 憭?/span>
+-                                              </div>
+-                                            </div>
+-
+-                                            {/* Assignee */}
+-                                            <div className="px-3 min-w-[90px] flex justify-center">
+-                                              <select
+-                                                value={task.assigneeId || ''}
+-                                                onChange={e => onUpdateTask?.(task.id, { assigneeId: e.target.value ? parseInt(e.target.value) : undefined })}
+-                                                className="bg-transparent border border-transparent hover:border-gray-200 rounded-md px-2 py-1 text-[11px] font-medium outline-none focus:border-indigo-400 text-gray-700 w-full transition-colors cursor-pointer opacity-80 group-hover/task:opacity-100"
+-                                              >
+-                                                <option value="">?芣?瘣?/option>
+-                                                {users.map(u => (
+-                                                  <option key={u.id} value={u.id}>{u.name}</option>
+-                                                ))}
+-                                              </select>
+-                                            </div>
+-
+-                                            {/* Status */}
+-                                            <div className="px-3 min-w-[90px] flex justify-center">
+-                                              <select
+-                                                value={task.status || '敺齒'}
+-                                                onChange={e => onUpdateTask?.(task.id, { status: e.target.value })}
+-                                                className="bg-transparent border border-transparent hover:border-gray-200 rounded-md px-2 py-1 text-[11px] font-medium outline-none focus:border-indigo-400 text-gray-700 transition-colors cursor-pointer opacity-80 group-hover/task:opacity-100"
+-                                              >
+-                                                {Object.keys(statusConfig).map(st => (
+-                                                  <option key={st} value={st}>{st}</option>
+-                                                ))}
+-                                              </select>
+-                                            </div>
+-                                            <div className="pl-3">
+-                                              <NodeTypeTag type="task" />
+-                                            </div>
+-                                          </div>
++                                    <div key={task.id} className="relative">
++                                      <div
++                                        onClick={() => onSelectTask(task.id)}
++                                        className={`flex items-center px-4 py-1 border-b border-slate-100 cursor-pointer ${
++                                          isSelected ? 'bg-indigo-50 ring-1 ring-indigo-200 shadow-sm' : 'hover:bg-slate-50'
++                                        }`}
++                                        style={{ paddingLeft: '64px' }}
++                                      >
++                                        <div className="w-14 shrink-0 flex items-center pr-2">
++                                           <div className="text-[9px] font-black text-slate-400 w-full text-center">{wbsMap[task.id] || '?'}</div>
+                                         </div>
++                                        <div className="flex-1 min-w-[150px] flex items-center gap-2 truncate">
++                                           <div className={`h-1 w-1 rounded-full shrink-0 ${status === 'DONE' ? 'bg-green-500' : (status === 'PROG' ? 'bg-blue-500' : 'bg-slate-300')}`} />
++                                           <span className="font-medium text-slate-700 truncate">{task.title}</span>
++                                        </div>
++                                        <div className="w-16 shrink-0 flex justify-center">
++                                           <span className={`text-[8px] font-black px-1 py-0.5 rounded-sm uppercase ${(statusConfig[status] || statusConfig['TODO']).color.replace('text-', 'border-').split(' ')[0]} border`}>
++                                             {status}
++                                           </span>
++                                        </div>
++                                        <div className="w-20 shrink-0 px-1"></div>
++                                        <div className="w-20 shrink-0 text-center truncate text-slate-400 text-[9px] font-bold">
++                                           {users.find(u => u.id === task.assigneeId)?.name || '-'}
++                                        </div>
++                                        <div className="w-32 shrink-0 text-right text-[8px] text-slate-400 font-black">
++                                           {formatDate(task.plannedStartDate)} - {formatDate(task.plannedEndDate)}
++                                        </div>
++                                        <div className="w-14 shrink-0 text-right pr-1">
++                                           {(() => {
++                                             const d = calcWorkingDays(task.plannedStartDate, task.plannedEndDate);
++                                             return <span className={`text-[9px] font-black ${d > 0 ? 'text-indigo-600' : 'text-slate-300'}`}>{d > 0 ? `${d}d` : '-'}</span>;
++                                           })()}
++                                        </div>
++                                        <div className="w-24 shrink-0 text-right text-[10px] text-slate-500 font-bold px-2 truncate">
++                                           {displayPreds || '-'}
++                                        </div>
++                                      </div>
++                                      {isSelected && (
++                                        <TaskDetailPanel
++                                          task={task}
++                                          users={users}
++                                          project={project}
++                                          wbsMap={wbsMap}
++                                          criticalPathIds={criticalPathIds}
++                                          onUpdateTask={onUpdateTask}
++                                          onClose={() => onSelectTask(task.id)}
++                                        />
+                                       )}
+-                                    </Draggable>
++                                    </div>
+                                   );
+                                 })}
+-                                {provided.placeholder}
+-
+-                                {phaseTasks.length === 0 && !snapshot.isDraggingOver && (
+-                                  <div className="flex items-center gap-2 px-3 py-2 text-[10px] text-gray-300 italic">
+-                                    <ArrowRightLeft className="w-3 h-3" /> ?舀??喃遙?甇?-                                  </div>
+-                                )}
+-
+-                                {/* Gate nodes */}
+-                                <div className="space-y-0.5 pt-0.5">
+-                                  {phaseGates.map(gate => {
+-                                    const statusCfg = gate.gateStatus
+-                                      ? gateStatusConfig[gate.gateStatus] ?? gateStatusConfig.PENDING
+-                                      : gateStatusConfig.PENDING;
+-                                    return (
+-                                      <div key={gate.id} className="flex items-center gap-3 px-4 py-1.5 ml-4 rounded-lg border border-dashed border-amber-200 bg-amber-50/60 group/gate">
+-                                        <div className="h-5 w-5 rounded-md bg-amber-100 flex items-center justify-center shrink-0">
+-                                          <ShieldCheck className="w-3 h-3 text-amber-700" />
+-                                        </div>
+-                                        <span className="text-xs font-black text-amber-900 flex-1">
+-                                          Gate ??{gate.phaseName}
+-                                        </span>
+-                                        <NodeTypeTag type="gate" />
+-                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${statusCfg.color}`}>
+-                                          {statusCfg.label}
+-                                        </span>
+-                                      </div>
+-                                    );
+-                                  })}
+-                                </div>
+                               </div>
+                             )}
+-                          </Droppable>
++                          </div>
+                         )}
++                        {phaseListProvided.placeholder}
+                       </div>
+-                    );
+-                  })}
+-                </div>
+-              )}
+-            </div>
+-          );
+-        })}
+-
+-        {visibleProjects.length === 0 && (
+-          <div className="p-16 text-center text-gray-300">
+-            <FolderOpen className="w-12 h-12 mx-auto mb-3" />
+-            <p className="font-bold text-gray-400">撠撠?鞈?</p>
+-          </div>
+-        )}
++                    )}
++                  </Droppable>
++                )}
++              </div>
++            );
++          })}
++        </div>
+       </div>
+     </DragDropContext>
+   );
+diff --git a/frontend/src/pages/Dashboard.tsx b/frontend/src/pages/Dashboard.tsx
+index 8ad1ad0..081c2aa 100644
+--- a/frontend/src/pages/Dashboard.tsx
++++ b/frontend/src/pages/Dashboard.tsx
+@@ -1,14 +1,28 @@
+-import { useState, useEffect } from 'react';
+-import { useNavigate } from 'react-router-dom';
++import { useState, useEffect, useRef, useMemo } from 'react';
++import { useLocation } from 'react-router-dom';
+ import Select from 'react-select';
+ import { Gantt, Task as GanttTask, ViewMode } from 'gantt-task-react';
+ import 'gantt-task-react/dist/index.css';
+ import WBSView from '../components/WBSView';
+ 
+ import {
+-  LayoutDashboard, Settings, Search, Users,
+-  Menu, X, FolderPlus, BarChart2, LogOut, List
++  X, Search, Plus,
++  ChevronLeft, ChevronRight, ArrowUp, ArrowDown, CalendarClock, Download,
++  Folder, FileSpreadsheet
+ } from 'lucide-react';
++import Sidebar from '../components/Sidebar';
++import ProjectSelectorModal from '../components/ProjectSelectorModal';
++import ImportModal from '../components/ImportModal';
++
++// const formatDate = (dateStr?: string) => {
++//   if (!dateStr) return '-';
++//   const date = new Date(dateStr);
++//   if (isNaN(date.getTime())) return '-';
++//   const m = String(date.getMonth() + 1).padStart(2, '0');
++//   const d = String(date.getDate()).padStart(2, '0');
++//   const y = date.getFullYear();
++//   return `${m}/${d}/${y}`;
++// };
+ 
+ const calcWorkingDays = (start?: string, end?: string) => {
+   if (!start || !end) return 0;
+@@ -27,605 +41,833 @@ const calcWorkingDays = (start?: string, end?: string) => {
+ 
+ export default function Dashboard() {
+   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+-  const navigate = useNavigate();
++  const location = useLocation();
++
++  // Resize state
++  const [wbsWidthPercentage, setWbsWidthPercentage] = useState(45);
++  const [isResizing, setIsResizing] = useState(false);
++  const containerRef = useRef<HTMLDivElement>(null);
+ 
+   // Modal state
+   const [isCreateTaskModalOpen, setIsCreateTaskModalOpen] = useState(false);
+   const [isCreateProjectModalOpen, setIsCreateProjectModalOpen] = useState(false);
++  const [isRescheduleModalOpen, setIsRescheduleModalOpen] = useState(false);
++  const [rescheduleMode, setRescheduleMode] = useState<'start' | 'end'>('start');
++  const [rescheduleDate, setRescheduleDate] = useState('');
+ 
+   // View & selection
+-  const [viewState, setViewState] = useState<'list' | 'gantt'>('list');
+-  const [ganttViewMode, setGanttViewMode] = useState<ViewMode>(ViewMode.Day);
++  const [ganttViewMode, setGanttViewMode] = useState<ViewMode>(ViewMode.Week);
+   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
++  const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
++  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
++
++  // Detail Drawer State
++  const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
++  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+ 
+   // Data
+   const [tasks, setTasks] = useState<any[]>([]);
+   const [projects, setProjects] = useState<any[]>([]);
+   const [users, setUsers] = useState<any[]>([]);
+-  const [projectMembers, setProjectMembers] = useState<any[]>([]);
+   const [gates, setGates] = useState<any[]>([]);
+-  const [currentUser, setCurrentUser] = useState<any>(null);
++  // const [currentUser, setCurrentUser] = useState<any>(null);
++
++  // Per-modal dynamic properties
++  const [modalGates, setModalGates] = useState<any[]>([]);
++  const [modalMembers, setModalMembers] = useState<any[]>([]);
+ 
+   // Form
+-  const [newTask, setNewTask] = useState({ title: '', projectId: null as number | null, plannedStartDate: '', plannedEndDate: '', assigneeId: null as number | null, phase: 'Planning' });
++  const [newTask, setNewTask] = useState({ title: '', projectId: null as number | null, plannedStartDate: '', plannedEndDate: '', assigneeId: null as number | null, phase: '' });
+   const [newProject, setNewProject] = useState({ id: null as number | null, name: '', description: '', ownerId: null as number | null, plannedStartDate: '', plannedEndDate: '', budget: 0 });
+ 
++  useEffect(() => {
++    const handleMouseMove = (e: MouseEvent) => {
++      if (!isResizing || !containerRef.current) return;
++      const containerRect = containerRef.current.getBoundingClientRect();
++      const relativeX = e.clientX - containerRect.left;
++      const newPercentage = (relativeX / containerRect.width) * 100;
++      setWbsWidthPercentage(newPercentage);
++    };
++    const handleMouseUp = () => setIsResizing(false);
++    if (isResizing) {
++      window.addEventListener('mousemove', handleMouseMove);
++      window.addEventListener('mouseup', handleMouseUp);
++    }
++    return () => {
++      window.removeEventListener('mousemove', handleMouseMove);
++      window.removeEventListener('mouseup', handleMouseUp);
++    };
++  }, [isResizing]);
++
++  const fetchProjectDetails = (projectId: number) => {
++    setTasks([]);
++    setGates([]);
++    
++    fetch((import.meta as any).env.BASE_URL + `api/tasks/project/${projectId}`)
++      .then(res => res.json())
++      .then(data => setTasks(data))
++      .catch(err => console.error(err));
++    
++    fetch((import.meta as any).env.BASE_URL + `api/phases/project/${projectId}`)
++      .then(res => res.ok ? res.json() : [])
++      .then(data => {
++        setGates(data);
++        setModalGates(data);
++      })
++      .catch(err => {
++        console.error("Failed to fetch phases:", err);
++        setGates([]);
++        setModalGates([]);
++      });
++
++    fetch((import.meta as any).env.BASE_URL + `api/projects/${projectId}/members`)
++      .then(res => res.json())
++      .then(data => setModalMembers(data))
++      .catch(err => console.error(err));
++  };
++
+   useEffect(() => {
+     const userJson = localStorage.getItem('currentUser');
+-    if (!userJson) { navigate('/login'); return; }
+-    setCurrentUser(JSON.parse(userJson));
+-
+-    (async () => {
+-      try {
+-        const [usersRes, projectsRes] = await Promise.all([
+-          fetch('http://localhost:8080/api/users'),
+-          fetch('http://localhost:8080/api/projects'),
+-        ]);
+-        if (usersRes.ok) setUsers(await usersRes.json());
+-        if (projectsRes.ok) {
+-          const p = await projectsRes.json();
+-          setProjects(p);
+-          if (p.length > 0) {
+-            const savedId = sessionStorage.getItem('dashboard_selectedProjectId');
+-            let initialId = p[p.length - 1].id;
+-            if (savedId && p.some((project: any) => project.id === Number(savedId))) {
+-              initialId = Number(savedId);
+-            }
+-            setSelectedProjectId(initialId);
+-            fetchProjectDetails(initialId);
+-          }
++    if (userJson) {
++      // const u = JSON.parse(userJson);
++      // setCurrentUser(u);
++    }
++
++    fetch((import.meta as any).env.BASE_URL + 'api/projects')
++      .then(res => res.json())
++      .then(data => {
++        setProjects(data);
++        
++        // Priority: 1. Navigation State, 2. Session Storage
++        const statePid = location.state?.selectedProjectId;
++        const storedPid = sessionStorage.getItem('dashboard_selectedProjectId');
++        
++        const pidToSet = statePid || (storedPid ? parseInt(storedPid) : null);
++        
++        if (pidToSet) {
++          setSelectedProjectId(pidToSet);
++          fetchProjectDetails(pidToSet);
++          sessionStorage.setItem('dashboard_selectedProjectId', pidToSet.toString());
+         }
+-      } catch (err) { console.error(err); }
+-    })();
+-  }, []);
++      })
++      .catch(err => console.error(err));
+ 
+-  const fetchProjectDetails = async (projectId: number) => {
+-    try {
+-      const [tasksRes, membersRes, gatesRes] = await Promise.all([
+-        fetch(`http://localhost:8080/api/tasks/project/${projectId}`),
+-        fetch(`http://localhost:8080/api/projects/${projectId}/members`),
+-        fetch(`http://localhost:8080/api/projects/${projectId}/gates`),
+-      ]);
+-      if (tasksRes.ok) setTasks(await tasksRes.json());
+-      if (membersRes.ok) setProjectMembers(await membersRes.json());
+-      if (gatesRes.ok) setGates(await gatesRes.json());
+-    } catch (err) { console.error(err); }
+-  };
++    fetch((import.meta as any).env.BASE_URL + 'api/users')
++      .then(res => res.json())
++      .then(data => setUsers(data))
++      .catch(err => console.error(err));
++  }, []);
+ 
++  // Persist project selection when changed manually
+   useEffect(() => {
+     if (selectedProjectId) {
++      sessionStorage.setItem('dashboard_selectedProjectId', selectedProjectId.toString());
+       fetchProjectDetails(selectedProjectId);
+-      sessionStorage.setItem('dashboard_selectedProjectId', String(selectedProjectId));
++    } else {
++      setTasks([]);
++      setGates([]);
+     }
+   }, [selectedProjectId]);
+ 
+-  // Task moved via DnD ??use lightweight PATCH
+-  const handleTaskMoved = async (taskId: number, newPhase: string, newProjectId: number) => {
+-    const task = tasks.find(t => t.id === taskId);
+-    if (!task) return;
+-    if (task.phase === newPhase && task.projectId === newProjectId) return; // no change
+-    // Optimistic update
+-    setTasks(prev => prev.map(t => t.id === taskId
+-      ? { ...t, phase: newPhase, projectId: newProjectId }
+-      : t
+-    ));
++  const handleExportProject = async () => {
++    if (!selectedProjectId) return;
+     try {
+-      const res = await fetch(`http://localhost:8080/api/tasks/${taskId}`, {
+-        method: 'PATCH',
++      const res = await fetch((import.meta as any).env.BASE_URL + `api/projects/${selectedProjectId}/export`);
++      if (res.ok) {
++        const blob = await res.blob();
++        const url = window.URL.createObjectURL(blob);
++        const a = document.createElement('a');
++        a.href = url;
++        const filename = res.headers.get('Content-Disposition')?.split('filename=')[1]?.replace(/"/g, '') || `project_${selectedProjectId}.xml`;
++        a.download = filename;
++        document.body.appendChild(a);
++        a.click();
++        a.remove();
++        window.URL.revokeObjectURL(url);
++      }
++    } catch (err) { console.error(err); }
++  };
++
++  const handleCreateTask = async () => {
++    if (!newTask.title || !newTask.projectId) return;
++    try {
++      const res = await fetch((import.meta as any).env.BASE_URL + 'api/tasks', {
++        method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+-        body: JSON.stringify({ phase: newPhase, projectId: newProjectId }),
++        body: JSON.stringify(newTask)
+       });
+-      if (!res.ok) throw new Error('PATCH failed');
+-    } catch (err) {
+-      console.error('DnD save failed, reverting:', err);
+-      setTasks(prev => prev.map(t => t.id === taskId ? task : t));
+-    }
++      if (res.ok) {
++        setIsCreateTaskModalOpen(false);
++        setNewTask({ title: '', projectId: selectedProjectId, plannedStartDate: '', plannedEndDate: '', assigneeId: null, phase: '' });
++        if (selectedProjectId) fetchProjectDetails(selectedProjectId);
++      }
++    } catch (err) { console.error(err); }
+   };
+ 
+-  const handleLogout = () => { localStorage.removeItem('currentUser'); navigate('/login'); };
+-
+-  // Rename handlers
+-  const handleRenameProject = async (projectId: number, newName: string) => {
+-    const proj = projects.find(p => p.id === projectId);
+-    if (!proj) return;
+-    setProjects(prev => prev.map(p => p.id === projectId ? { ...p, name: newName } : p));
++  const handleUpdateTask = async (taskId: number, updates: any) => {
+     try {
+-      await fetch(`http://localhost:8080/api/projects/${projectId}`, {
++      const res = await fetch((import.meta as any).env.BASE_URL + `api/tasks/${taskId}`, {
+         method: 'PATCH',
+         headers: { 'Content-Type': 'application/json' },
+-        body: JSON.stringify({ name: newName }),
++        body: JSON.stringify(updates)
+       });
+-    } catch { setProjects(prev => prev.map(p => p.id === projectId ? proj : p)); }
++      if (res.ok) {
++        if (selectedProjectId) fetchProjectDetails(selectedProjectId);
++      }
++    } catch (err) { console.error(err); }
+   };
+ 
+-  const handleUpdateTask = async (taskId: number, updates: any) => {
+-    const task = tasks.find(t => t.id === taskId);
+-    if (!task) return;
+-    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, ...updates } : t));
++  const handleTaskMoved = async (taskId: number, newPhase: string, newProjectId: number) => {
+     try {
+-      await fetch(`http://localhost:8080/api/tasks/${taskId}`, {
++      const res = await fetch((import.meta as any).env.BASE_URL + `api/tasks/${taskId}`, {
+         method: 'PATCH',
+         headers: { 'Content-Type': 'application/json' },
+-        body: JSON.stringify(updates),
++        body: JSON.stringify({ phase: newPhase, projectId: newProjectId })
+       });
+-    } catch { setTasks(prev => prev.map(t => t.id === taskId ? task : t)); }
++      if (res.ok && selectedProjectId) fetchProjectDetails(selectedProjectId);
++    } catch (err) { console.error(err); }
+   };
+ 
+-  const handleCreateProject = async (e: React.FormEvent) => {
+-    e.preventDefault();
+-    if (!newProject.name.trim()) return;
+-    const method = newProject.id ? 'PUT' : 'POST';
+-    const url = newProject.id
+-      ? `http://localhost:8080/api/projects/${newProject.id}`
+-      : 'http://localhost:8080/api/projects';
++  const handleCreateProject = async () => {
++    if (!newProject.name) return;
+     try {
+-      const res = await fetch(url, {
+-        method, headers: { 'Content-Type': 'application/json' },
+-        body: JSON.stringify({ ...newProject, status: 'ACTIVE' }),
++      const res = await fetch((import.meta as any).env.BASE_URL + 'api/projects', {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify({ ...newProject, type: 'Project' })
+       });
+       if (res.ok) {
+-        const saved = await res.json();
+-        setProjects(newProject.id ? projects.map(p => p.id === saved.id ? saved : p) : [...projects, saved]);
+-        setSelectedProjectId(saved.id);
+         setIsCreateProjectModalOpen(false);
+         setNewProject({ id: null, name: '', description: '', ownerId: null, plannedStartDate: '', plannedEndDate: '', budget: 0 });
++        const AllProjects = await (await fetch((import.meta as any).env.BASE_URL + 'api/projects')).json();
++        setProjects(AllProjects);
+       }
+     } catch (err) { console.error(err); }
+   };
+ 
+-  const handleCreateTask = async (e: React.FormEvent) => {
+-    e.preventDefault();
+-    if (!newTask.title.trim() || !newTask.projectId) return;
++  const handleRenameProject = async (id: number, newName: string) => {
+     try {
+-      const res = await fetch('http://localhost:8080/api/tasks', {
+-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+-        body: JSON.stringify(newTask),
++      const res = await fetch((import.meta as any).env.BASE_URL + `api/projects/${id}`, {
++        method: 'PATCH',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify({ name: newName })
+       });
+       if (res.ok) {
+-        const created = await res.json();
+-        setTasks([created, ...tasks]);
+-        setIsCreateTaskModalOpen(false);
+-        setNewTask({ title: '', projectId: selectedProjectId, plannedStartDate: '', plannedEndDate: '', assigneeId: null, phase: 'Planning' });
++        setProjects(projects.map(p => p.id === id ? { ...p, name: newName } : p));
+       }
+     } catch (err) { console.error(err); }
+   };
++  const handleAddPhase = async (projectId: number, phaseName: string) => {
++    try {
++      const res = await fetch((import.meta as any).env.BASE_URL + `api/phases/project/${projectId}`, {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify({ phaseName })
++      });
++      if (res.ok) fetchProjectDetails(projectId);
++    } catch (err) { console.error(err); }
++  };
++  const handleUpdatePhase = async (phaseId: number, updates: any) => {
++    try {
++      const res = await fetch((import.meta as any).env.BASE_URL + `api/phases/${phaseId}`, {
++         method: 'PUT',
++         headers: { 'Content-Type': 'application/json' },
++         body: JSON.stringify(updates)
++      });
++      if (res.ok && selectedProjectId) fetchProjectDetails(selectedProjectId);
++    } catch (err) { console.error(err); }
++  }
++  const handleReorderPhases = async (projectId: number, phaseIds: number[]) => {
++    try {
++      const res = await fetch((import.meta as any).env.BASE_URL + `api/phases/project/${projectId}/reorder`, {
++        method: 'PUT',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify(phaseIds)
++      });
++      if (res.ok) fetchProjectDetails(projectId);
++    } catch (err) { console.error(err); }
++  };
++
++  const handleSelectTask = (taskId: number | null) => {
++    setSelectedTaskId(taskId);
++    setIsDrawerOpen(!!taskId);
++  };
++
++  const handleAdjustTask = async (direction: 'indent' | 'outdent' | 'up' | 'down') => {
++    if (!selectedTaskId) return;
++    try {
++      const res = await fetch((import.meta as any).env.BASE_URL + `api/tasks/${selectedTaskId}/adjust?direction=${direction}`, {
++        method: 'POST'
++      });
++      if (res.ok && selectedProjectId) fetchProjectDetails(selectedProjectId);
++    } catch (err) { console.error(err); }
++  };
+ 
+-  const handleApproveGate = async (projectId: number) => {
++  const handleReschedule = async () => {
++    if (!selectedProjectId || !rescheduleDate) return;
+     try {
+-      const res = await fetch(`http://localhost:8080/api/projects/${projectId}/gates/approve`, {
+-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+-        body: JSON.stringify({ approverId: currentUser.id, comments: '???' }),
++      const res = await fetch((import.meta as any).env.BASE_URL + `api/projects/${selectedProjectId}/reschedule`, {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify({ targetDate: rescheduleDate, mode: rescheduleMode })
+       });
+       if (res.ok) {
+-        const updated = await res.json();
+-        setProjects(projects.map(p => p.id === projectId ? updated : p));
+-        // Refresh gates
+-        const gatesRes = await fetch(`http://localhost:8080/api/projects/${projectId}/gates`);
+-        if (gatesRes.ok) setGates(await gatesRes.json());
+-      } else {
+-        const err = await res.json();
+-        alert(err.message || '?詨?憭望?嚗?);
++        setIsRescheduleModalOpen(false);
++        fetchProjectDetails(selectedProjectId);
+       }
+     } catch (err) { console.error(err); }
+   };
+ 
+-  const currentProject = projects.find(p => p.id === selectedProjectId) ?? (projects[projects.length - 1] ?? null);
+-  const isOwner = currentUser && currentProject && currentProject.ownerId === currentUser.id;
+-
+-  const PHASES = ['Initiation', 'Planning', 'Execution', 'Monitoring', 'Closing'];
+-  const ganttTasks: GanttTask[] = [];
++  const ganttTasks: GanttTask[] = useMemo(() => {
++    const list: GanttTask[] = [];
++    if (!selectedProjectId) return list;
++
++    // Parse date-only strings as LOCAL time (not UTC) to align with
++    // gantt-task-react's local-midnight column boundaries.
++    const safeDate = (dateStr: string | null | undefined, fallback: Date, isEnd = false): Date => {
++      if (!dateStr) return fallback;
++      const localStr = dateStr.length === 10
++        ? `${dateStr}T${isEnd ? '23:59:59' : '00:00:00'}`
++        : dateStr;
++      const d = new Date(localStr);
++      return isNaN(d.getTime()) ? fallback : d;
++    };
++
++    const proj = projects.find(p => p.id == selectedProjectId);
++    if (!proj) return list;
++
++    const pStart = safeDate(proj.plannedStartDate, new Date());
++    const pEnd   = safeDate(proj.plannedEndDate,   new Date(), true);
++
++    // CRITICAL: Every task MUST have a unique, stable displayOrder.
++    // gantt-task-react's internal sortTasks sorts by displayOrder.
++    // Without it (undefined ??Number.MAX_VALUE), the sort is unstable and
++    // triggers an infinite "Maximum update depth exceeded" loop.
++    let order = 0;
++
++    list.push({
++      id: `project-${proj.id}`,
++      name: proj.name,
++      start: pStart,
++      end: pEnd,
++      type: 'project',
++      progress: 0,
++      displayOrder: ++order,
++      styles: { backgroundColor: '#4f46e5', backgroundSelectedColor: '#4338ca' }
++    });
+ 
+-  if (currentProject) {
+-    const projectStart = currentProject.plannedStartDate ? new Date(currentProject.plannedStartDate) : new Date();
+-    const projectEnd = currentProject.plannedEndDate ? new Date(currentProject.plannedEndDate) : new Date();
++    const allTaskIds = new Set(tasks.map(t => String(t.id)));
++    const phasesInOrder = Array.from(new Set(tasks.map(t => t.phase).filter(Boolean)));
++    const tasksWithoutPhase = tasks.filter(t => !t.phase);
++
++    phasesInOrder.forEach((phaseName) => {
++      const phaseTasks = tasks.filter(t => t.phase === phaseName);
++      if (phaseTasks.length === 0) return;
++
++      const phaseStart = new Date(Math.min(...phaseTasks.map(t => safeDate(t.plannedStartDate, pStart).getTime())));
++      const phaseEnd   = new Date(Math.max(...phaseTasks.map(t => safeDate(t.plannedEndDate, pEnd, true).getTime())));
++
++      list.push({
++        id: `phase-${order}`,
++        name: String(phaseName),
++        start: phaseStart,
++        end: phaseEnd,
++        type: 'project',
++        progress: 0,
++        displayOrder: ++order,
++        styles: { backgroundColor: '#818cf8', backgroundSelectedColor: '#6366f1' }
++      });
+ 
+-    ganttTasks.push({
+-      start: projectStart, end: projectEnd, name: currentProject.name,
+-      id: `project-${currentProject.id}`, type: 'project' as const, progress: 0, isDisabled: true,
+-      styles: { progressColor: '#6366f1', progressSelectedColor: '#4f46e5' }
++      phaseTasks.forEach(task => {
++        const tStart = safeDate(task.plannedStartDate, phaseStart);
++        const tEnd   = safeDate(task.plannedEndDate,   tStart, true);
++        list.push({
++          id: String(task.id),
++          name: task.title,
++          start: tStart,
++          end: tEnd,
++          type: 'task',
++          progress: task.status === 'DONE' ? 100 : 0,
++          displayOrder: ++order,
++          dependencies: (task.predecessors || '').split(',')
++            .map((p: string) => p.trim().replace(/^T/, ''))
++            .filter((id: string) => id && allTaskIds.has(id)),
++          styles: { backgroundColor: '#e2e8f0', backgroundSelectedColor: '#cbd5e1', progressColor: '#4f46e5', progressSelectedColor: '#4338ca' }
++        });
++      });
+     });
+ 
+-    PHASES.forEach((phase, index) => {
+-      const phaseTasks = tasks.filter(t => t.phase === phase && t.plannedStartDate && t.plannedEndDate);
+-      if (phaseTasks.length > 0) {
+-        const pStarts = phaseTasks.map(t => new Date(t.plannedStartDate).getTime());
+-        const pEnds = phaseTasks.map(t => new Date(t.plannedEndDate).getTime());
+-        const phaseStart = new Date(Math.min(...pStarts));
+-        const phaseEnd = new Date(Math.max(...pEnds));
+-
+-        ganttTasks.push({
+-          start: phaseStart, end: phaseEnd, name: `Phase ${index + 1}: ${phase}`,
+-          id: `phase-${phase}`, type: 'project' as const, project: `project-${currentProject.id}`,
+-          progress: 0, isDisabled: true, hideChildren: false,
+-          styles: { progressColor: '#8b5cf6', progressSelectedColor: '#7c3aed', backgroundColor: '#eedeff' }
+-        });
++    if (tasksWithoutPhase.length > 0) {
++      const cStart = new Date(Math.min(...tasksWithoutPhase.map(t => safeDate(t.plannedStartDate, pStart).getTime())));
++      const cEnd   = new Date(Math.max(...tasksWithoutPhase.map(t => safeDate(t.plannedEndDate, pEnd, true).getTime())));
++
++      list.push({
++        id: `phase-common`,
++        name: 'Common Tasks',
++        start: cStart,
++        end: cEnd,
++        type: 'project',
++        progress: 0,
++        displayOrder: ++order,
++        styles: { backgroundColor: '#94a3b8', backgroundSelectedColor: '#64748b' }
++      });
+ 
+-        phaseTasks.forEach(t => {
+-          let prog = 0;
+-          if (t.status === '撌脣???) prog = 100;
+-          else if (t.status === '?脰?銝? && t.plannedStartDate && t.plannedEndDate) {
+-            const planD = calcWorkingDays(t.plannedStartDate, t.plannedEndDate) || 1;
+-            const actD = calcWorkingDays(t.actualStartDate, t.actualEndDate) || 0;
+-            prog = Math.min(100, Math.floor((actD / planD) * 100));
+-          } else if (t.status === '?脰?銝?) {
+-            prog = 50;
+-          }
+-
+-          ganttTasks.push({
+-            start: new Date(t.plannedStartDate), end: new Date(t.plannedEndDate), name: t.title,
+-            id: String(t.id), type: 'task' as const, project: `phase-${phase}`,
+-            progress: prog, isDisabled: true,
+-            styles: { progressColor: '#3b82f6', progressSelectedColor: '#2563eb' }
+-          });
++      tasksWithoutPhase.forEach(task => {
++        const tStart = safeDate(task.plannedStartDate, cStart);
++        const tEnd   = safeDate(task.plannedEndDate,   tStart, true);
++        list.push({
++          id: String(task.id),
++          name: task.title,
++          start: tStart,
++          end: tEnd,
++          type: 'task',
++          progress: task.status === 'DONE' ? 100 : 0,
++          displayOrder: ++order,
++          dependencies: (task.predecessors || '').split(',')
++            .map((p: string) => p.trim().replace(/^T/, ''))
++            .filter((id: string) => id && allTaskIds.has(id)),
++          styles: { backgroundColor: '#e2e8f0', backgroundSelectedColor: '#cbd5e1', progressColor: '#4f46e5', progressSelectedColor: '#4338ca' }
+         });
+-      }
++      });
++    }
++
++    return list;
++  }, [tasks, projects, selectedProjectId]);
++
++
++
++
++
++  const currentProject = projects.find(p => p.id === selectedProjectId);
++
++  // WBS Map for simple display
++  const wbsMap = useMemo(() => {
++    const map: Record<number, string> = {};
++    const phases = Array.from(new Set(tasks.map(t => t.phase).filter(Boolean)));
++    phases.forEach((p, pi) => {
++      const pts = tasks.filter(t => t.phase === p);
++      pts.forEach((t, ti) => {
++        map[t.id] = `${pi + 1}.${ti + 1}`;
++      });
+     });
+-  }
++    return map;
++  }, [tasks]);
+ 
+-  const navItems = [
+-    { name: '?銵冽', icon: LayoutDashboard, onClick: () => navigate('/dashboard'), active: true },
+-    { name: '??/撣唾?蝬剛風', icon: Users, onClick: () => navigate('/team'), active: false },
+-    { name: '蝟餌絞閮剖?', icon: Settings, onClick: () => { }, active: false },
+-  ];
++  const criticalPathIds = useMemo(() => {
++    // Highly simplified dummy logic for now
++    return new Set<string>();
++  }, [tasks]);
+ 
+   return (
+-    <div className="flex h-screen bg-gray-50 font-sans">
+-      {/* ?? Sidebar ?? */}
+-      <aside className={`${isSidebarOpen ? 'w-64' : 'w-20'} bg-white border-r border-gray-200 transition-all duration-300 flex flex-col z-20 shadow-sm`}>
+-        <div className="h-16 flex items-center justify-between px-4 border-b">
+-          <div className={`font-black text-xl text-indigo-600 truncate ${!isSidebarOpen && 'hidden'}`}>PMP Enterprise</div>
+-          <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 hover:bg-gray-100 rounded-lg">
+-            <Menu className="w-5 h-5 text-gray-400" />
+-          </button>
+-        </div>
+-        <nav className="flex-1 py-6">
+-          <ul className="space-y-1 px-3">
+-            {navItems.map(item => (
+-              <li key={item.name}>
+-                <button onClick={item.onClick} className={`w-full flex items-center h-10 px-3 rounded-xl transition-all ${item.active ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'text-gray-500 hover:bg-indigo-50 hover:text-indigo-600'}`}>
+-                  <item.icon className="w-5 h-5 shrink-0" />
+-                  <span className={`ml-3 font-medium whitespace-nowrap ${!isSidebarOpen && 'hidden'}`}>{item.name}</span>
++    <div className="h-screen flex flex-col bg-white overflow-hidden">
++      <div className="flex flex-1 overflow-hidden">
++        <Sidebar isSidebarOpen={isSidebarOpen} setIsSidebarOpen={setIsSidebarOpen} />
++        
++        <div className="flex-1 flex flex-col min-w-0 bg-slate-50 relative">
++          {/* Dashboard Header */}
++          <header className="h-16 px-8 bg-white border-b border-gray-100 flex items-center justify-between shrink-0 z-10">
++             <div className="flex items-center gap-4">
++               <div className="bg-indigo-600 p-2 rounded-xl shadow-lg shadow-indigo-100"><Folder className="w-5 h-5 text-white" /></div>
++               <div className="flex flex-col">
++                  <h1 className="text-sm font-black text-slate-900 tracking-tight uppercase">WBS Analysis</h1>
++                  <p className="text-[10px] font-bold text-slate-400">Project: {currentProject?.name || 'Unselected'}</p>
++               </div>
++             </div>
++             
++             <div className="flex items-center gap-4">
++                <button 
++                  onClick={() => setIsProjectModalOpen(true)}
++                  className="flex items-center gap-2 px-4 py-2 bg-slate-50 border border-slate-100 rounded-xl text-[11px] font-black text-slate-600 hover:bg-slate-100 transition-all"
++                >
++                  <Search className="w-4 h-4" /> SELECT PROJECT
+                 </button>
+-              </li>
+-            ))}
+-          </ul>
+-        </nav>
+-        <div className="p-4 border-t">
+-          <button onClick={handleLogout} className="w-full flex items-center px-3 py-2 text-red-500 hover:bg-red-50 rounded-xl transition-all">
+-            <LogOut className="w-5 h-5 shrink-0" />
+-            <span className={`ml-3 font-medium ${!isSidebarOpen && 'hidden'}`}>?餃蝟餌絞</span>
+-          </button>
+-        </div>
+-      </aside>
+-
+-      {/* ?? Main ?? */}
+-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+-        {/* Header */}
+-        <header className="h-16 bg-white border-b flex items-center justify-between px-8 z-10 sticky top-0">
+-          <div className="max-w-xl w-full">
+-            <div className="relative">
+-              <Search className="w-4 h-4 text-gray-400 absolute left-3 top-3" />
+-              <input type="text" placeholder="敹恍?撠遙??.." className="w-full pl-10 pr-4 py-2 bg-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-indigo-100 focus:bg-white transition-all text-sm" />
+-            </div>
+-          </div>
+-          <div className="flex items-center space-x-5">
+-            <div className="text-right">
+-              <p className="text-sm font-bold text-gray-900">{currentUser?.name}</p>
+-              <p className="text-[10px] text-gray-400 font-medium uppercase tracking-widest">{currentUser?.role}</p>
+-            </div>
+-            <div className="h-10 w-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-bold shadow-lg shadow-indigo-100 cursor-default select-none">
+-              {currentUser?.name?.charAt(0)}
+-            </div>
+-          </div>
+-        </header>
+-
+-        <div className="flex-1 overflow-auto p-6">
+-          <div className="max-w-7xl mx-auto space-y-6">
+-
+-            {/* ?? Top Actions ?? */}
+-            <div className="flex justify-between items-center">
+-              <div>
+-                <h2 className="text-2xl font-black text-gray-900">撠??銵冽</h2>
+-                <p className="text-gray-400 text-sm mt-0.5">PMP 隡平蝝?獢恣????Work Breakdown Structure</p>
+-              </div>
+-              <div className="flex space-x-3">
+-                <button onClick={() => setIsCreateProjectModalOpen(true)} className="bg-white border-2 border-indigo-100 text-indigo-700 px-4 py-2 rounded-xl font-bold hover:bg-indigo-50 transition-all flex items-center shadow-sm text-sm">
+-                  <FolderPlus className="w-4 h-4 mr-2" /> 撱箇?撠?
++                <div className="w-[1px] h-6 bg-gray-100" />
++                <button 
++                  disabled={!selectedProjectId}
++                  onClick={() => setIsRescheduleModalOpen(true)}
++                  className="p-2 text-amber-500 hover:bg-amber-50 rounded-xl transition-all disabled:opacity-20" title="Reschedule"
++                >
++                  <CalendarClock className="w-5 h-5" />
+                 </button>
+-                <button
+-                  onClick={() => {
+-                    setIsCreateTaskModalOpen(true);
+-                    setNewTask({ title: '', projectId: selectedProjectId, plannedStartDate: '', plannedEndDate: '', assigneeId: null, phase: 'Initiation' });
+-                  }}
+-                  className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold hover:bg-indigo-700 transition-all flex items-center shadow-lg shadow-indigo-200 text-sm"
++                <button 
++                  disabled={!selectedProjectId}
++                  onClick={handleExportProject}
++                  className="p-2 text-indigo-500 hover:bg-indigo-50 rounded-xl transition-all disabled:opacity-20" title="Export MPP"
+                 >
+-                  <span className="mr-1.5 font-black text-lg leading-none">+</span> ?啣?隞餃?
++                  <Download className="w-5 h-5" />
+                 </button>
+-              </div>
+-            </div>
+-
+-            {/* ?? Project Card ?? */}
+-            {currentProject && (
+-              <div className="bg-white rounded-2xl border border-gray-100 shadow-lg shadow-indigo-50/30 p-6">
+-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-5">
+-                  <div className="flex-1 min-w-0">
+-                    <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1.5">?豢?撠?</p>
+-                    <Select
+-                      options={projects.map(p => ({ value: p.id, label: p.name }))}
+-                      value={{ value: currentProject.id, label: currentProject.name }}
+-                      onChange={o => setSelectedProjectId(o?.value || null)}
+-                      className="text-lg font-black"
+-                    />
+-                  </div>
+-                  <div className="flex items-center gap-2 shrink-0">
+-                    <button
+-                      onClick={() => navigate(`/details/PROJECT/${currentProject.id}`)}
+-                      className="px-3 py-2 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-xl hover:bg-indigo-100 transition-all shadow-sm"
+-                    >
+-                      ?? 閰喟敦蝬剛風?Ｘ
+-                    </button>
+-                    <button
+-                      onClick={() => { setNewProject({ ...currentProject }); setIsCreateProjectModalOpen(true); }}
+-                      className="px-3 py-2 bg-gray-50 text-gray-600 text-xs font-bold rounded-xl hover:bg-gray-100 transition-all"
+-                    >
+-                      ??蝺刻摩蝡?
+-                    </button>
+-                    {isOwner && (
+-                      <button
+-                        onClick={() => handleApproveGate(currentProject.id)}
+-                        className="px-4 py-2 bg-green-500 text-white text-xs font-bold rounded-xl hover:bg-green-600 shadow-lg shadow-green-100 transition-all"
++                <button 
++                  disabled={!selectedProjectId}
++                  onClick={() => setIsImportModalOpen(true)}
++                  className="p-2 text-emerald-500 hover:bg-emerald-50 rounded-xl transition-all disabled:opacity-20" title="Import WBS"
++                >
++                  <FileSpreadsheet className="w-5 h-5" />
++                </button>
++             </div>
++          </header>
++
++          <div className="flex-1 flex flex-col min-h-0">
++             <div className="flex items-center justify-between px-6 py-4 bg-white border-b border-gray-100 flex-shrink-0">
++                <div className="flex items-center gap-6">
++                   <div className="font-black text-[10px] text-slate-500 uppercase tracking-widest">WBS Schedule & Control</div>
++                   
++                   {/* Global WBS Action Toolbar */}
++                   <div className="flex items-center gap-1.5 px-3 py-1 bg-gray-50 rounded-lg border border-gray-100">
++                     <button 
++                       onClick={() => handleAdjustTask('outdent')} 
++                       disabled={!selectedTaskId}
++                       className={`p-1 rounded transition-all ${selectedTaskId ? 'text-indigo-600 hover:bg-white hover:shadow-sm' : 'text-gray-300 pointer-events-none'}`}
++                       title="Outdent (Move Up Level)"
++                     >
++                       <ChevronLeft className="w-3.5 h-3.5" />
++                     </button>
++                     <button 
++                       onClick={() => handleAdjustTask('indent')} 
++                       disabled={!selectedTaskId}
++                       className={`p-1 rounded transition-all ${selectedTaskId ? 'text-indigo-600 hover:bg-white hover:shadow-sm' : 'text-gray-300 pointer-events-none'}`}
++                       title="Indent (Move Down Level)"
++                     >
++                       <ChevronRight className="w-3.5 h-3.5" />
++                     </button>
++                     <div className="w-[1px] h-3 bg-gray-200 mx-0.5" />
++                     <button 
++                       onClick={() => handleAdjustTask('up')} 
++                       disabled={!selectedTaskId}
++                       className={`p-1 rounded transition-all ${selectedTaskId ? 'text-indigo-600 hover:bg-white hover:shadow-sm' : 'text-gray-300 pointer-events-none'}`}
++                       title="Move Up"
++                     >
++                       <ArrowUp className="w-3.5 h-3.5" />
++                     </button>
++                     <button 
++                       onClick={() => handleAdjustTask('down')} 
++                       disabled={!selectedTaskId}
++                       className={`p-1 rounded transition-all ${selectedTaskId ? 'text-indigo-600 hover:bg-white hover:shadow-sm' : 'text-gray-300 pointer-events-none'}`}
++                       title="Move Down"
++                     >
++                       <ArrowDown className="w-3.5 h-3.5" />
++                     </button>
++                   </div>
++
++                   <div className="flex items-center gap-1.5">
++                      <button 
++                        onClick={() => {
++                          const name = prompt('Phase Name:');
++                          if (name && selectedProjectId) handleAddPhase(selectedProjectId, name);
++                        }}
++                        className="bg-violet-600 text-white px-3 py-1 rounded-lg text-[9px] font-black flex items-center hover:bg-violet-700 transition-all shadow-sm"
+                       >
+-                        ???詨??挾
++                        <Plus className="w-3 h-3 mr-1" /> PHASE
++                      </button>
++                      
++                      <button 
++                        onClick={() => {
++                          setIsCreateTaskModalOpen(true);
++                          setNewTask(p => ({ ...p, projectId: selectedProjectId, title: '', plannedStartDate: '', plannedEndDate: '' }));
++                        }}
++                        className="bg-indigo-600 text-white px-3 py-1 rounded-lg text-[9px] font-black flex items-center hover:bg-indigo-700 transition-all shadow-sm"
++                      >
++                        <Plus className="w-3 h-3 mr-1" /> TASK
+                       </button>
+-                    )}
+-                    <span className="text-xs font-black text-indigo-700 bg-indigo-50 px-3 py-1.5 rounded-full border border-indigo-100 whitespace-nowrap">
+-                      ??{currentProject.currentPhase || 'Initiation'}
+-                    </span>
+-                  </div>
+-                </div>
+ 
+-                {/* Phase Progress Rail */}
+-                <div className="flex gap-1">
+-                  {PHASES.map((p, i) => {
+-                    const idx = PHASES.indexOf(currentProject.currentPhase || 'Initiation');
+-                    const active = i <= idx;
+-                    const current = i === idx;
+-                    return (
+-                      <div key={p} className="flex-1 flex flex-col items-center gap-1.5">
+-                        <div className={`h-1.5 w-full rounded-full transition-all duration-700 ${active ? (current ? 'bg-indigo-600 shadow-[0_0_8px_rgba(99,102,241,0.5)]' : 'bg-indigo-300') : 'bg-gray-100'}`} />
+-                        <span className={`text-[9px] font-black uppercase tracking-wide ${current ? 'text-indigo-600' : (active ? 'text-indigo-300' : 'text-gray-200')}`}>{p}</span>
+-                      </div>
+-                    );
+-                  })}
+-                </div>
+-              </div>
+-            )}
+-
+-            {/* ?? WBS Panel ?? */}
+-            <div className="bg-white rounded-2xl border border-gray-100 shadow-lg shadow-indigo-50/30 overflow-hidden">
+-              {/* Panel Header */}
+-              <div className="px-6 py-4 border-b flex justify-between items-center bg-gray-50/50">
+-                <div className="flex space-x-1 bg-white p-1 rounded-xl border">
+-                  <button
+-                    onClick={() => setViewState('list')}
+-                    className={`flex items-center px-5 py-1.5 rounded-lg text-xs font-black transition-all ${viewState === 'list' ? 'bg-indigo-600 text-white shadow' : 'text-gray-400 hover:bg-gray-50'}`}
+-                  >
+-                    <List className="w-3.5 h-3.5 mr-1.5" /> WBS 蝯?
+-                  </button>
+-                  <button
+-                    onClick={() => setViewState('gantt')}
+-                    className={`flex items-center px-5 py-1.5 rounded-lg text-xs font-black transition-all ${viewState === 'gantt' ? 'bg-indigo-600 text-white shadow' : 'text-gray-400 hover:bg-gray-50'}`}
+-                  >
+-                    <BarChart2 className="w-3.5 h-3.5 mr-1.5" /> ???-                  </button>
++                      <button 
++                        onClick={() => {
++                          setIsCreateTaskModalOpen(true);
++                          const today = new Date().toISOString().split('T')[0];
++                          setNewTask(p => ({ 
++                            ...p, 
++                            projectId: selectedProjectId, 
++                            title: 'GATE: ',
++                            plannedStartDate: today, 
++                            plannedEndDate: today 
++                          }));
++                        }}
++                        className="bg-amber-500 text-white px-3 py-1 rounded-lg text-[9px] font-black flex items-center hover:bg-amber-600 transition-all shadow-sm"
++                      >
++                        <Plus className="w-3 h-3 mr-1" /> GATE
++                      </button>
++                   </div>
+                 </div>
+-
+-                {/* Gantt View Toggles */}
+-                {viewState === 'gantt' && (
+-                  <div className="flex items-center gap-2 bg-gray-50 p-1 rounded-lg border ml-4">
+-                    <button
+-                      onClick={() => setGanttViewMode(ViewMode.Day)}
+-                      className={`px-3 py-1 text-xs font-bold rounded ${ganttViewMode === ViewMode.Day ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:bg-gray-100'}`}
+-                    >
+-                      憭?(Day)
+-                    </button>
+-                    <button
+-                      onClick={() => setGanttViewMode(ViewMode.Week)}
+-                      className={`px-3 py-1 text-xs font-bold rounded ${ganttViewMode === ViewMode.Week ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:bg-gray-100'}`}
+-                    >
+-                      ??(Week)
+-                    </button>
++                 <div className="flex items-center gap-2">
++                  <div className="flex items-center gap-1 bg-gray-50 p-1 rounded-xl border border-gray-100 text-[8px] font-black tracking-wider">
++                     <button onClick={() => setGanttViewMode(ViewMode.Day)} className={`px-2 py-1.5 rounded-lg transition-all ${ganttViewMode === ViewMode.Day ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-400 hover:text-indigo-400'}`}>DAY</button>
++                     <button onClick={() => setGanttViewMode(ViewMode.Week)} className={`px-2 py-1.5 rounded-lg transition-all ${ganttViewMode === ViewMode.Week ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-400 hover:text-indigo-400'}`}>WK</button>
++                     <button onClick={() => setGanttViewMode(ViewMode.Month)} className={`px-2 py-1.5 rounded-lg transition-all ${ganttViewMode === ViewMode.Month ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-400 hover:text-indigo-400'}`}>MO</button>
++                     <button onClick={() => setGanttViewMode(ViewMode.Year)} className={`px-2 py-1.5 rounded-lg transition-all ${ganttViewMode === ViewMode.Year ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-400 hover:text-indigo-400'}`}>YR</button>
+                   </div>
+-                )}
+-
+-                {/* Team avatars */}
+-                <div className="flex items-center gap-3">
+-                  <div className="flex -space-x-1.5">
+-                    {projectMembers.slice(0, 6).map((m, i) => {
+-                      const u = users.find(u => u.id === m.userId);
+-                      return (
+-                        <div key={i} title={u?.name} className="h-7 w-7 rounded-full bg-indigo-50 text-indigo-600 border-2 border-white flex items-center justify-center text-[10px] font-black shadow-sm">
+-                          {u?.name?.charAt(0) ?? '?'}
+-                        </div>
+-                      );
+-                    })}
++                </div>
++             </div>
++             <div ref={containerRef} className="flex-1 flex overflow-hidden relative">
++                 <div style={{ width: `${wbsWidthPercentage}%` }} className="border-r border-gray-100 overflow-y-auto">
++                   <WBSView 
++                     projects={projects} 
++                     tasks={tasks} 
++                     gates={gates} 
++                     users={users} 
++                     selectedProjectId={selectedProjectId} 
++                     onTaskMoved={handleTaskMoved} 
++                     onRenameProject={handleRenameProject} 
++                     onReorderPhases={handleReorderPhases} 
++                     onSelectTask={handleSelectTask} 
++                     selectedTaskId={selectedTaskId} 
++                     onUpdateTask={handleUpdateTask} 
++                     onUpdatePhase={handleUpdatePhase}
++                     onAdjustTask={handleAdjustTask} 
++                     wbsMap={wbsMap} 
++                     criticalPathIds={criticalPathIds}
++                   />
++                 </div>
++
++                <div
++                   className={`w-1.5 hover:w-2 bg-transparent hover:bg-gray-200 cursor-col-resize transition-all z-20 shrink-0 ${isResizing ? 'bg-indigo-400 w-2' : ''}`}
++                   onMouseDown={(e) => { e.preventDefault(); setIsResizing(true); }}
++                >
++                  <div className="h-full w-full flex items-center justify-center opacity-0 hover:opacity-100">
++                     <div className="w-0.5 h-8 bg-gray-300 rounded-full" />
+                   </div>
+                 </div>
+-              </div>
+ 
+-              {/* Content */}
+-              <div className="p-5 min-h-96">
+-                {viewState === 'list' ? (
+-                  <WBSView
+-                    projects={projects}
+-                    tasks={tasks}
+-                    gates={gates}
+-                    users={users}
+-                    selectedProjectId={selectedProjectId}
+-                    onTaskMoved={handleTaskMoved}
+-                    onRenameProject={handleRenameProject}
+-                    onUpdateTask={handleUpdateTask}
+-                  />
+-                ) : (
+-                  <div className="h-full">
+-                    <p className="text-xs text-gray-400 mb-4 flex items-center gap-1">
+-                      <span className="text-amber-500">??/span> ???憿舐內閮剜????????隞餃?
+-                    </p>
+-                    {ganttTasks.length > 0 ? (
+-                      <div className="rounded-xl border border-gray-100 overflow-hidden">
+-                        <Gantt
+-                          tasks={ganttTasks}
+-                          viewMode={ganttViewMode}
+-                          listCellWidth=""
+-                          columnWidth={60}
+-                          locale="zh"
+-                          onClick={(task) => {
+-                            if (task.id.startsWith('project-')) {
+-                              navigate('/details/PROJECT/' + task.id.split('-')[1]);
+-                            } else if (task.id.startsWith('phase-')) {
+-                              navigate('/details/PHASE/' + selectedProjectId + '-' + task.id.substring(6));
+-                            } else {
+-                              navigate('/details/TASK/' + task.id);
+-                            }
+-                          }}
+-                        />
+-                      </div>
+-                    ) : (
+-                      <div className="flex flex-col items-center justify-center py-20 text-center">
+-                        <div className="h-14 w-14 bg-gray-50 rounded-2xl flex items-center justify-center text-gray-200 mb-3">
+-                          <BarChart2 className="w-7 h-7" />
+-                        </div>
+-                        <p className="text-gray-500 font-bold text-sm">?∪憿舐內?遙??/p>
+-                        <p className="text-xs text-gray-400 mt-1">隢Ⅱ靽遙?歇閮剖????????/p>
+-                      </div>
+-                    )}
++                <div style={{ width: `${100 - wbsWidthPercentage}%` }} className="bg-white overflow-auto border-l border-gray-100 flex flex-col">
++                  {ganttTasks.length > 0 ? (
++                    <div className="gantt-container h-full">
++                      <Gantt 
++                         tasks={ganttTasks} 
++                         viewMode={ganttViewMode} 
++                         locale="en" 
++                         listCellWidth=""
++                         columnWidth={65} 
++                         rowHeight={32}
++                         fontSize="11px"
++                         headerHeight={45}
++                         barCornerRadius={2}
++                         todayColor="rgba(37, 99, 235, 0.04)"
++                         onClick={t => !t.id.startsWith('project') && !t.id.startsWith('phase') && handleSelectTask(parseInt(t.id))} 
++                      />
++                    </div>
++                  ) : (
++                    <div className="h-full flex items-center justify-center text-gray-300 font-black text-[10px] uppercase tracking-widest italic">Set dates to view Gantt Chart</div>
++                  )}
++                </div>
++                {isDrawerOpen && (
++                  <div className="absolute inset-y-0 right-0 w-[420px] bg-white shadow-2xl border-l border-gray-100 z-30 flex flex-col transform transition-all">
++                     <div className="h-16 px-6 border-b flex items-center justify-between bg-white shrink-0">
++                        <h3 className="font-black text-slate-900 text-[11px] uppercase tracking-widest">Detail Maintenance</h3>
++                        <button onClick={() => setIsDrawerOpen(false)} className="p-2 hover:bg-gray-100 rounded-full text-gray-400"><X className="w-4 h-4" /></button>
++                     </div>
++                     <div className="flex-1 overflow-y-auto p-6">
++                        {selectedTaskId && tasks.find(t => t.id === selectedTaskId) ? (
++                            <TaskDrawerContent 
++                               task={tasks.find(t => t.id === selectedTaskId)} 
++                               users={users} 
++                               onUpdate={handleUpdateTask} 
++                               wbsCode={wbsMap[selectedTaskId]} 
++                               isCritical={criticalPathIds.has(String(selectedTaskId))} 
++                               projectRoles={currentProject?.responsibleRoles?.split(',').map((r: string) => r.trim()).filter(Boolean) || []}
++                            />
++                        ) : (
++                           <div className="text-gray-300 text-center py-20 italic">Loading...</div>
++                        )}
++                     </div>
+                   </div>
+                 )}
+-              </div>
+-            </div>
+-
++             </div>
+           </div>
+         </div>
+ 
+-        {/* ?? Create Task Modal ?? */}
++        {/* Modals placeholders */}
+         {isCreateTaskModalOpen && (
+-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 backdrop-blur-sm p-4">
+-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden">
+-              <div className="px-7 h-16 border-b flex items-center justify-between bg-indigo-50/50">
+-                <h3 className="text-lg font-black text-indigo-900">?晷 WBS 隞餃?</h3>
+-                <button onClick={() => setIsCreateTaskModalOpen(false)} className="p-1.5 hover:bg-white rounded-full text-indigo-400 transition-all">
+-                  <X className="w-5 h-5" />
+-                </button>
++           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
++              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden p-8 space-y-6">
++                 <h3 className="text-[14px] font-black text-indigo-900 border-b pb-4 uppercase tracking-widest">Add WBS Task</h3>
++                 <div className="space-y-4">
++                    <input type="text" placeholder="Task title..." value={newTask.title} onChange={e => setNewTask(p => ({ ...p, title: e.target.value }))} className="w-full px-4 py-2 bg-gray-50 rounded-xl font-bold border-2 border-transparent focus:border-indigo-500 outline-none text-[12px]" />
++                    <div className="grid grid-cols-2 gap-4">
++                       <Select options={projects.map(p => ({ value: p.id, label: p.name }))} value={projects.map(p => ({ value: p.id, label: p.name })).find(o => o.value === newTask.projectId)} onChange={o => setNewTask(p => ({ ...p, projectId: o?.value || null }))} placeholder="PJ" />
++                       <Select options={modalGates.map(g => ({ value: g.phaseName, label: g.phaseName }))} value={{ value: newTask.phase, label: newTask.phase }} onChange={o => setNewTask(p => ({ ...p, phase: o?.value || '' }))} placeholder="PHASE" isDisabled={!newTask.projectId} />
++                    </div>
++                    <Select options={modalMembers.map(m => ({ value: m.userId, label: users.find(u => u.id === m.userId)?.name || '' }))} onChange={o => setNewTask(p => ({ ...p, assigneeId: o?.value || null }))} placeholder="ASSIGN" isDisabled={!newTask.projectId} />
++                    <div className="grid grid-cols-2 gap-4">
++                       <div>
++                          <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Schedule Start <span className="text-red-500">*</span></label>
++                          <input required type="date" value={newTask.plannedStartDate} onChange={e => setNewTask(p => ({ ...p, plannedStartDate: e.target.value }))} className="w-full px-3 py-2 bg-gray-50 rounded-xl border-2 border-transparent focus:border-indigo-500 outline-none text-[11px] font-bold" />
++                       </div>
++                       <div>
++                          <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Schedule End <span className="text-red-500">*</span></label>
++                          <input required type="date" value={newTask.plannedEndDate} onChange={e => setNewTask(p => ({ ...p, plannedEndDate: e.target.value }))} className="w-full px-3 py-2 bg-gray-50 rounded-xl border-2 border-transparent focus:border-indigo-500 outline-none text-[11px] font-bold" />
++                       </div>
++                    </div>
++                 </div>
++                 <div className="flex justify-end gap-3 pt-4">
++                    <button onClick={() => setIsCreateTaskModalOpen(false)} className="px-6 py-2 rounded-xl text-[11px] font-black text-gray-400">CANCEL</button>
++                    <button
++                      onClick={handleCreateTask}
++                      disabled={!newTask.title.trim() || !newTask.projectId || !newTask.plannedStartDate || !newTask.plannedEndDate}
++                      className="px-6 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black shadow-lg disabled:opacity-40 disabled:pointer-events-none"
++                    >CREATE</button>
++                 </div>
+               </div>
+-              <form onSubmit={handleCreateTask} className="p-7 space-y-5">
+-                <div>
+-                  <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">隞餃??迂 *</label>
+-                  <input type="text" required value={newTask.title} onChange={e => setNewTask({ ...newTask, title: e.target.value })}
+-                    className="w-full px-4 py-2.5 bg-gray-50 border-2 border-transparent focus:border-indigo-400 rounded-xl outline-none text-sm font-bold"
+-                    placeholder="頛詨隞餃??迂..." />
+-                </div>
+-                <div className="grid grid-cols-2 gap-4">
+-                  <div>
+-                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">甇詨惇撠? *</label>
+-                    <Select
+-                      options={projects.map(p => ({ value: p.id, label: p.name }))}
+-                      value={projects.map(p => ({ value: p.id, label: p.name })).find(o => o.value === newTask.projectId) ?? null}
+-                      onChange={o => setNewTask({ ...newTask, projectId: o?.value ?? null })}
+-                      placeholder="?豢?撠?..."
+-                      menuPosition="fixed"
+-                      menuPlacement="auto"
+-                    />
+-                  </div>
+-                  <div>
+-                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">甇詨惇?挾 (Phase) *</label>
+-                    <Select
+-                      options={['Initiation', 'Planning', 'Execution', 'Monitoring', 'Closing'].map(p => ({ value: p, label: p }))}
+-                      value={{ value: newTask.phase, label: newTask.phase }}
+-                      onChange={o => setNewTask({ ...newTask, phase: o?.value || 'Initiation' })}
+-                      menuPosition="fixed"
+-                      menuPlacement="auto"
+-                    />
+-                  </div>
+-                </div>
+-                <div>
+-                  <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">?晷鈭箏</label>
+-                  <Select
+-                    options={projectMembers.map(m => { const u = users.find(x => x.id === m.userId); return { value: m.userId, label: u?.name ?? '?' }; })}
+-                    onChange={o => setNewTask({ ...newTask, assigneeId: o?.value as any })}
+-                    isClearable
+-                    placeholder="?豢??..."
+-                    menuPosition="fixed"
+-                    menuPlacement="auto"
+-                  />
+-                </div>
+-                <div className="grid grid-cols-2 gap-4">
+-                  <div>
+-                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">閬????交?</label>
+-                    <input type="date" value={newTask.plannedStartDate} onChange={e => setNewTask({ ...newTask, plannedStartDate: e.target.value })}
+-                      className="w-full px-4 py-2.5 bg-gray-50 border-2 border-transparent focus:border-indigo-400 rounded-xl outline-none text-sm font-bold" />
+-                  </div>
+-                  <div>
+-                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">閬?蝯??交?</label>
+-                    <input type="date" value={newTask.plannedEndDate} onChange={e => setNewTask({ ...newTask, plannedEndDate: e.target.value })}
+-                      className="w-full px-4 py-2.5 bg-gray-50 border-2 border-transparent focus:border-indigo-400 rounded-xl outline-none text-sm font-bold" />
+-                  </div>
+-                </div>
+-                <div className="pt-2 flex justify-end gap-3">
+-                  <button type="button" onClick={() => setIsCreateTaskModalOpen(false)} className="px-5 py-2 text-sm font-bold text-gray-400 hover:bg-gray-50 rounded-xl">??</button>
+-                  <button type="submit" className="px-6 py-2 bg-indigo-600 text-white text-sm font-black rounded-xl hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all active:scale-95">
+-                    ?啣???WBS
+-                  </button>
+-                </div>
+-              </form>
+-            </div>
+-          </div>
++           </div>
+         )}
+ 
+-        {/* ?? Create Project Modal ?? */}
+         {isCreateProjectModalOpen && (
+-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 backdrop-blur-sm p-4">
+-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+-              <div className="px-7 h-16 border-b flex items-center justify-between bg-amber-50/50">
+-                <h3 className="text-lg font-black text-amber-900">撠?蝡?</h3>
+-                <button onClick={() => setIsCreateProjectModalOpen(false)} className="p-1.5 hover:bg-white rounded-full text-amber-400 transition-all">
+-                  <X className="w-5 h-5" />
++           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
++              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden p-8 space-y-6">
++                 <h3 className="text-[14px] font-black text-indigo-900 border-b pb-4 uppercase tracking-widest">Edit Project</h3>
++                 <input type="text" placeholder="PJ Name..." value={newProject.name} onChange={e => setNewProject(p => ({ ...p, name: e.target.value }))} className="w-full px-4 py-2 bg-gray-50 rounded-xl font-bold border-2 border-transparent focus:border-indigo-500 outline-none text-[12px]" />
++                 <div className="flex justify-end gap-3 pt-4">
++                    <button onClick={() => setIsCreateProjectModalOpen(false)} className="px-6 py-2 rounded-xl text-[11px] font-black text-gray-400">CANCEL</button>
++                    <button onClick={handleCreateProject} className="px-6 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black shadow-lg uppercase">Save</button>
++                 </div>
++              </div>
++           </div>
++        )}
++
++        {/* Reschedule Modal */}
++        {isRescheduleModalOpen && (
++          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
++            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8 space-y-6">
++              <div className="flex items-center gap-3 border-b pb-4">
++                <CalendarClock className="w-5 h-5 text-amber-500" />
++                <h3 className="text-[14px] font-black text-slate-900 uppercase tracking-widest">Project Reschedule</h3>
++              </div>
++              <p className="text-[11px] text-gray-500">Set a new anchor date. All tasks will shift proportionally while preserving working-day durations.</p>
++              <div className="flex gap-2 bg-gray-50 p-1 rounded-xl">
++                <button onClick={() => { setRescheduleMode('start'); setRescheduleDate(currentProject?.plannedStartDate?.split('T')[0] || ''); }}
++                  className={`flex-1 py-2 rounded-lg text-[11px] font-black transition-all ${rescheduleMode === 'start' ? 'bg-white shadow text-amber-600' : 'text-gray-400'}`}>
++                  By Start Date
++                </button>
++                <button onClick={() => { setRescheduleMode('end'); setRescheduleDate(currentProject?.plannedEndDate?.split('T')[0] || ''); }}
++                  className={`flex-1 py-2 rounded-lg text-[11px] font-black transition-all ${rescheduleMode === 'end' ? 'bg-white shadow text-amber-600' : 'text-gray-400'}`}>
++                  By End Date
+                 </button>
+               </div>
+-              <form onSubmit={handleCreateProject} className="p-7 space-y-5">
+-                <div>
+-                  <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">撠??迂 *</label>
+-                  <input type="text" required value={newProject.name} onChange={e => setNewProject({ ...newProject, name: e.target.value })}
+-                    className="w-full px-4 py-2.5 bg-gray-50 border-2 border-transparent focus:border-amber-400 rounded-xl outline-none text-sm font-bold" />
++              <div className="space-y-2">
++                <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest">
++                  New {rescheduleMode === 'start' ? 'Project Start' : 'Project End'} Date
++                </label>
++                <input type="date" value={rescheduleDate} onChange={e => setRescheduleDate(e.target.value)}
++                  className="w-full px-4 py-3 bg-amber-50 border-2 border-amber-200 focus:border-amber-500 rounded-xl outline-none text-[13px] font-black" />
++                <div className="text-[10px] text-gray-400">
++                  Current: {rescheduleMode === 'start'
++                    ? (currentProject?.plannedStartDate?.split('T')[0] || 'N/A')
++                    : (currentProject?.plannedEndDate?.split('T')[0] || 'N/A')}
+                 </div>
+-                <div className="grid grid-cols-2 gap-4">
+-                  <div>
+-                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">??</label>
+-                    <input type="number" value={newProject.budget} onChange={e => setNewProject({ ...newProject, budget: Number(e.target.value) })}
+-                      className="w-full px-4 py-2.5 bg-gray-50 border-2 border-transparent focus:border-amber-400 rounded-xl outline-none text-sm font-bold" />
+-                  </div>
+-                  <div>
+-                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">撠? Owner</label>
+-                    <Select
+-                      options={users.map(u => ({ value: u.id, label: u.name }))}
+-                      value={users.map(u => ({ value: u.id, label: u.name })).find(x => x.value === newProject.ownerId)}
+-                      onChange={o => setNewProject({ ...newProject, ownerId: o?.value as any })}
+-                      menuPosition="fixed"
+-                      menuPlacement="auto"
+-                    />
+-                  </div>
+-                </div>
+-                <div className="pt-2 flex justify-end gap-3">
+-                  <button type="button" onClick={() => setIsCreateProjectModalOpen(false)} className="px-5 py-2 text-sm font-bold text-gray-400 hover:bg-gray-50 rounded-xl">??</button>
+-                  <button type="submit" className="px-6 py-2 bg-amber-500 text-white text-sm font-black rounded-xl hover:bg-amber-600 shadow-lg shadow-amber-100 transition-all active:scale-95">
+-                    ?脣?蝡?
+-                  </button>
+-                </div>
+-              </form>
++              </div>
++              <div className="flex justify-end gap-3 pt-2">
++                <button onClick={() => setIsRescheduleModalOpen(false)} className="px-6 py-2 rounded-xl text-[11px] font-black text-gray-400 hover:bg-gray-50">CANCEL</button>
++                <button onClick={handleReschedule} disabled={!rescheduleDate}
++                  className="px-6 py-2 bg-amber-500 text-white rounded-xl text-[11px] font-black shadow-lg hover:bg-amber-600 disabled:opacity-40">
++                  APPLY RESCHEDULE
++                </button>
++              </div>
+             </div>
+           </div>
+         )}
+ 
+-      </main>
++        <ProjectSelectorModal 
++          isOpen={isProjectModalOpen}
++          onClose={() => setIsProjectModalOpen(false)}
++          projects={projects}
++          onSelect={(id) => {
++            setSelectedProjectId(id);
++            fetchProjectDetails(id);
++            sessionStorage.setItem('dashboard_selectedProjectId', String(id));
++          }}
++          currentProjectId={selectedProjectId}
++        />
++
++        {currentProject && (
++          <ImportModal
++            isOpen={isImportModalOpen}
++            onClose={() => setIsImportModalOpen(false)}
++            projectId={currentProject.id}
++            projectName={currentProject.name}
++            onImportSuccess={() => {
++              fetchProjectDetails(currentProject.id);
++              setIsImportModalOpen(false);
++            }}
++          />
++        )}
++      </div>
++    </div>
++  );
++}
++
++function TaskDrawerContent({ task, users, onUpdate, wbsCode, isCritical, projectRoles }: { 
++  task: any, 
++  users: any[], 
++  onUpdate: any, 
++  wbsCode?: string, 
++  isCritical?: boolean,
++  projectRoles: string[]
++}) {
++  if (!task) return null;
++
++  return (
++    <div className="space-y-6">
++      {(wbsCode || isCritical) && (
++        <div className="flex items-center gap-2">
++          {wbsCode && <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-[9px] font-black rounded-md">WBS {wbsCode}</span>}
++          {isCritical && <span className="px-2 py-0.5 bg-red-50 text-red-700 text-[9px] font-black rounded-md border border-red-200">??CRITICAL PATH</span>}
++        </div>
++      )}
++      <div>
++        <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Activity Name</label>
++        <input type="text" value={task.title} onChange={e => onUpdate(task.id, { title: e.target.value })} className="w-full px-4 py-2 bg-gray-50 border-2 border-transparent focus:border-indigo-400 rounded-xl outline-none text-[11px] font-black shadow-inner" />
++      </div>
++      <div className="grid grid-cols-2 gap-4">
++        <div>
++          <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Assignee</label>
++          <Select options={users.map(u => ({ value: u.id, label: u.name }))} value={users.map(u => ({ value: u.id, label: u.name })).find(o => o.value === task.assigneeId) || null} onChange={o => onUpdate(task.id, { assigneeId: o?.value || null })} isClearable placeholder="Select..." />
++        </div>
++        <div>
++          <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Responsible Role</label>
++          <Select 
++            options={projectRoles.map(r => ({ value: r, label: r }))} 
++            value={task.responsibleRoles ? { value: task.responsibleRoles, label: task.responsibleRoles } : null} 
++            onChange={o => onUpdate(task.id, { responsibleRoles: o?.value || null })} 
++            isClearable 
++            placeholder="Select Role..." 
++          />
++        </div>
++      </div>
++      <div>
++        <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Status</label>
++        <Select options={['TODO', 'PROG', 'DONE', 'OVR'].map(s => ({ value: s, label: s }))} value={{ value: task.status || 'TODO', label: task.status || 'TODO' }} onChange={o => onUpdate(task.id, { status: o?.value })} />
++      </div>
++      <div className="p-4 bg-gray-50/50 rounded-2xl border border-gray-100 space-y-4">
++        <h4 className="text-[9px] font-black text-gray-400 uppercase tracking-widest border-b pb-2">Schedule</h4>
++        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
++           <div>
++             <label className="block text-[8px] font-black text-gray-500 uppercase mb-1">PL Start</label>
++             <input type="date" value={task.plannedStartDate || ''} onChange={e => onUpdate(task.id, { plannedStartDate: e.target.value })} className="w-full px-3 py-1.5 bg-white border border-gray-100 rounded-lg text-[9px] font-bold" />
++           </div>
++           <div>
++             <label className="block text-[8px] font-black text-gray-500 uppercase mb-1">PL End</label>
++             <input type="date" value={task.plannedEndDate || ''} onChange={e => onUpdate(task.id, { plannedEndDate: e.target.value })} className="w-full px-3 py-1.5 bg-white border border-gray-100 rounded-lg text-[9px] font-bold" />
++           </div>
++           <div>
++             <label className="block text-[8px] font-black text-gray-500 uppercase mb-1">ACT Start</label>
++             <input type="date" value={task.actualStartDate || ''} onChange={e => onUpdate(task.id, { actualStartDate: e.target.value })} className="w-full px-3 py-1.5 bg-white border border-gray-100 rounded-lg text-[9px] font-bold" />
++           </div>
++           <div>
++             <label className="block text-[8px] font-black text-gray-500 uppercase mb-1">ACT End</label>
++             <input type="date" value={task.actualEndDate || ''} onChange={e => onUpdate(task.id, { actualEndDate: e.target.value })} className="w-full px-3 py-1.5 bg-white border border-gray-100 rounded-lg text-[9px] font-bold" />
++           </div>
++        </div>
++        <div className="pt-2 flex justify-between items-center text-[10px] font-black text-slate-500 uppercase">
++           <span>PL DUR: {calcWorkingDays(task.plannedStartDate, task.plannedEndDate)}D</span>
++           <span className={task.actualEndDate ? 'text-green-600' : 'text-gray-400'}>
++             ACT DUR: {calcWorkingDays(task.actualStartDate, task.actualEndDate)}D
++           </span>
++        </div>
++      </div>
++      <div className="border border-dashed border-gray-200 rounded-2xl p-4">
++        <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Predecessors (Backend Format e.g. T25[FS+3])</label>
++        <input type="text" value={task.predecessors || ''} onChange={e => onUpdate(task.id, { predecessors: e.target.value })} className="w-full px-4 py-2 bg-gray-50 border-2 border-transparent focus:border-indigo-400 rounded-xl outline-none text-[11px] font-black shadow-inner mb-4" placeholder="T12[FS], T15[SS+2]" />
++        
++        <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Memo / Notes</label>
++        <textarea placeholder="Add note..." className="w-full h-24 px-4 py-2 bg-transparent outline-none text-[10px] font-medium resize-none" />
++      </div>
+     </div>
+   );
+ }
+
+commit 335b9895826c8eb7cb7339b07ea75c3ed4fc01cc
+Author: Ted_Ho(雿?? <10007327@chicony.local>
+Date:   Fri Apr 3 22:08:31 2026 +0800
+
+    feat: implement WBS/Gantt date tracking, entity details view, and file attachments
+
+diff --git a/frontend/src/App.tsx b/frontend/src/App.tsx
+index 05a5105..0a68208 100644
+--- a/frontend/src/App.tsx
++++ b/frontend/src/App.tsx
+@@ -2,7 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
+ import Landing from './pages/Landing';
+ import Dashboard from './pages/Dashboard';
+ import Login from './pages/Login';
+-import TeamManagement from './pages/TeamManagement';
++import EntityDetails from './pages/EntityDetails';
+ 
+ // 蝪∪?楝?勗?銵?隞? const PrivateRoute = ({ children }: { children: JSX.Element }) => {
+@@ -30,12 +30,12 @@ function App() {
+           } 
+         />
+ 
+-        {/* ???蝬剛風? (??霅? */}
++        {/* 閰喟敦蝬剛風? (??霅? */}
+         <Route 
+-          path="/team" 
++          path="/details/:targetType/:targetId" 
+           element={
+             <PrivateRoute>
+-              <TeamManagement />
++              <EntityDetails />
+             </PrivateRoute>
+           } 
+         />
+diff --git a/frontend/src/components/WBSView.tsx b/frontend/src/components/WBSView.tsx
+index 1f1451b..ba13e21 100644
+--- a/frontend/src/components/WBSView.tsx
++++ b/frontend/src/components/WBSView.tsx
+@@ -1,4 +1,5 @@
+-import { useState, useCallback, useRef } from 'react';
++import { useState, useRef } from 'react';
++import { useNavigate } from 'react-router-dom';
+ import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
+ import {
+   FolderOpen, Layers, CheckSquare2, ShieldCheck, ChevronDown, ChevronRight,
+@@ -15,8 +16,10 @@ interface WBSTask {
+   projectId: number;
+   status?: string;
+   assigneeId?: number;
+-  startDate?: string;
+-  endDate?: string;
++  plannedStartDate?: string;
++  plannedEndDate?: string;
++  actualStartDate?: string;
++  actualEndDate?: string;
+ }
+ 
+ interface WBSGate {
+@@ -44,9 +47,24 @@ interface WBSViewProps {
+   selectedProjectId: number | null;
+   onTaskMoved: (taskId: number, newPhase: string, newProjectId: number) => void;
+   onRenameProject?: (projectId: number, newName: string) => void;
+-  onRenameTask?: (taskId: number, newTitle: string) => void;
++  onUpdateTask?: (taskId: number, updates: Partial<WBSTask>) => void;
+ }
+ 
++const calcWorkingDays = (start?: string, end?: string) => {
++  if (!start || !end) return 0;
++  const dStart = new Date(start);
++  const dEnd = new Date(end);
++  if (isNaN(dStart.getTime()) || isNaN(dEnd.getTime()) || dEnd < dStart) return 0;
++  let days = 0;
++  let current = new Date(dStart);
++  while (current <= dEnd) {
++    const day = current.getDay();
++    if (day !== 0 && day !== 6) days++;
++    current.setDate(current.getDate() + 1);
++  }
++  return days;
++};
++
+ // ??????????????????????????????????????????
+ //  Constants
+ // ??????????????????????????????????????????
+@@ -119,17 +137,6 @@ function NodeTypeTag({ type }: { type: keyof typeof nodeConfig }) {
+   );
+ }
+ 
+-function TaskStatusBadge({ status }: { status?: string }) {
+-  const s = status || '敺齒';
+-  const cfg = statusConfig[s] ?? statusConfig['敺齒'];
+-  const { Icon, color } = cfg;
+-  return (
+-    <span className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${color}`}>
+-      <Icon className="w-3 h-3" />{s}
+-    </span>
+-  );
+-}
+-
+ // ??????????????????????????????????????????
+ //  Main Component
+ // ??????????????????????????????????????????
+@@ -141,8 +148,9 @@ export default function WBSView({
+   selectedProjectId,
+   onTaskMoved,
+   onRenameProject,
+-  onRenameTask,
++  onUpdateTask,
+ }: WBSViewProps) {
++  const navigate = useNavigate();
+   const [expandedPhases,    setExpandedPhases]    = useState<Record<string, boolean>>(() =>
+     PHASES.reduce((a, p) => ({ ...a, [p]: true }), {})
+   );
+@@ -153,10 +161,7 @@ export default function WBSView({
+   // Editing state: "project-{id}", "task-{id}", "phase-{phase}"
+   const [editingKey, setEditingKey] = useState<string | null>(null);
+ 
+-  const getUserName = useCallback(
+-    (id?: number) => id ? (users.find(u => u.id === id)?.name ?? '?芣?瘣?) : '?芣?瘣?,
+-    [users]
+-  );
++
+ 
+   const visibleProjects = selectedProjectId
+     ? projects.filter(p => p.id === selectedProjectId)
+@@ -260,10 +265,16 @@ export default function WBSView({
+                           <button
+                             onClick={() => setEditingKey(editingKey === phaseEditKey ? null : phaseEditKey)}
+                             className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-violet-100 text-violet-400 transition-all shrink-0"
+-                            title="Phase ?迂?望?皞?蝢抬??臬甇斗?閮?閮?(?芯??)"
++                            title="靽格?迂"
+                           >
+                             <Pencil className="w-3 h-3" />
+                           </button>
++                          <button
++                            onClick={(e) => { e.stopPropagation(); navigate(`/details/PHASE/${project.id}-${phase}`); }}
++                            className="opacity-0 group-hover:opacity-100 text-[10px] bg-violet-100 text-violet-600 px-2 py-1 rounded font-bold hover:bg-violet-200 transition-all ml-2"
++                          >
++                            閰喟敦蝬剛風
++                          </button>
+ 
+                           <NodeTypeTag type="phase" />
+                           <div className="hidden sm:flex items-center gap-2 shrink-0">
+@@ -291,8 +302,6 @@ export default function WBSView({
+                                 }`}
+                               >
+                                 {phaseTasks.map((task, idx) => {
+-                                  const assigneeName = getUserName(task.assigneeId);
+-                                  const initials     = assigneeName !== '?芣?瘣? ? assigneeName.charAt(0) : '?';
+                                   const taskEditKey  = `task-${task.id}`;
+ 
+                                   return (
+@@ -324,7 +333,7 @@ export default function WBSView({
+                                           {editingKey === taskEditKey ? (
+                                             <InlineEdit
+                                               value={task.title}
+-                                              onSave={title => { onRenameTask?.(task.id, title); setEditingKey(null); }}
++                                              onSave={title => { onUpdateTask?.(task.id, { title }); setEditingKey(null); }}
+                                               onCancel={() => setEditingKey(null)}
+                                               className="flex-1"
+                                             />
+@@ -340,31 +349,94 @@ export default function WBSView({
+ 
+                                           {/* Edit btn */}
+                                           {editingKey !== taskEditKey && (
+-                                            <button
+-                                              onClick={e => { e.stopPropagation(); setEditingKey(taskEditKey); }}
+-                                              className="opacity-0 group-hover/task:opacity-100 p-1 rounded hover:bg-indigo-100 text-indigo-400 transition-all shrink-0"
+-                                              title="靽格隞餃??迂"
+-                                            >
+-                                              <Pencil className="w-3 h-3" />
+-                                            </button>
++                                            <div className="flex gap-1 shrink-0 ml-2">
++                                              <button
++                                                onClick={e => { e.stopPropagation(); setEditingKey(taskEditKey); }}
++                                                className="opacity-0 group-hover/task:opacity-100 p-1.5 rounded-lg hover:bg-indigo-100 text-indigo-400 transition-all"
++                                                title="靽格隞餃??迂"
++                                              >
++                                                <Pencil className="w-3.5 h-3.5" />
++                                              </button>
++                                              <button
++                                                onClick={(e) => { e.stopPropagation(); navigate(`/details/TASK/${task.id}`); }}
++                                                className="opacity-0 group-hover/task:opacity-100 text-[10px] bg-indigo-50 border border-indigo-100 text-indigo-600 px-2 rounded-lg font-bold hover:bg-indigo-100 transition-all"
++                                              >
++                                                閰喟敦蝬剛風
++                                              </button>
++                                            </div>
+                                           )}
+ 
+-                                          {/* Meta */}
+-                                          <div className="hidden sm:flex items-center gap-2 shrink-0">
+-                                            {(task.startDate || task.endDate) && (
+-                                              <span className="flex items-center gap-1 text-[10px] text-gray-400">
+-                                                <Clock className="w-3 h-3" />
+-                                                {task.startDate?.slice(5) ?? '?'} ~ {task.endDate?.slice(5) ?? '?'}
+-                                              </span>
+-                                            )}
+-                                            <div
+-                                              className="h-5 w-5 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-[9px] font-black shrink-0"
+-                                              title={assigneeName}
+-                                            >
+-                                              {initials}
++                                          {/* Editable Data Columns */}
++                                          <div className="hidden lg:flex items-center shrink-0 text-[10px] divide-x divide-gray-100">
++                                            {/* Planned */}
++                                            <div className="flex flex-col px-3 items-center justify-center min-w-[120px]">
++                                              <span className="text-[9px] text-gray-400 font-bold mb-0.5">閬? ({calcWorkingDays(task.plannedStartDate, task.plannedEndDate)} 憭?</span>
++                                              <div className="flex items-center gap-1">
++                                                <input
++                                                  type="date"
++                                                  value={task.plannedStartDate || ''}
++                                                  onChange={e => onUpdateTask?.(task.id, { plannedStartDate: e.target.value })}
++                                                  className="w-[85px] bg-gray-50 border border-gray-200 rounded px-1 py-0.5 text-center text-gray-600 outline-none focus:border-indigo-400"
++                                                />
++                                                <span className="text-gray-300">-</span>
++                                                <input
++                                                  type="date"
++                                                  value={task.plannedEndDate || ''}
++                                                  onChange={e => onUpdateTask?.(task.id, { plannedEndDate: e.target.value })}
++                                                  className="w-[85px] bg-gray-50 border border-gray-200 rounded px-1 py-0.5 text-center text-gray-600 outline-none focus:border-indigo-400"
++                                                />
++                                              </div>
++                                            </div>
++
++                                            {/* Actual */}
++                                            <div className="flex flex-col px-3 items-center justify-center min-w-[120px]">
++                                              <span className="text-[9px] text-gray-400 font-bold mb-0.5">撖阡? ({calcWorkingDays(task.actualStartDate, task.actualEndDate)} 憭?</span>
++                                              <div className="flex items-center gap-1">
++                                                <input
++                                                  type="date"
++                                                  value={task.actualStartDate || ''}
++                                                  onChange={e => onUpdateTask?.(task.id, { actualStartDate: e.target.value })}
++                                                  className="w-[85px] bg-gray-50 border border-gray-200 rounded px-1 py-0.5 text-center text-gray-600 outline-none focus:border-indigo-400"
++                                                />
++                                                <span className="text-gray-300">-</span>
++                                                <input
++                                                  type="date"
++                                                  value={task.actualEndDate || ''}
++                                                  onChange={e => onUpdateTask?.(task.id, { actualEndDate: e.target.value })}
++                                                  className="w-[85px] bg-gray-50 border border-gray-200 rounded px-1 py-0.5 text-center text-gray-600 outline-none focus:border-indigo-400"
++                                                />
++                                              </div>
++                                            </div>
++
++                                            {/* Assignee */}
++                                            <div className="px-3 min-w-[90px] flex justify-center">
++                                              <select
++                                                value={task.assigneeId || ''}
++                                                onChange={e => onUpdateTask?.(task.id, { assigneeId: e.target.value ? parseInt(e.target.value) : undefined })}
++                                                className="bg-gray-50 border border-gray-200 rounded px-1.5 py-1 outline-none focus:border-indigo-400 text-gray-700 w-full"
++                                              >
++                                                <option value="">?芣?瘣?/option>
++                                                {users.map(u => (
++                                                  <option key={u.id} value={u.id}>{u.name}</option>
++                                                ))}
++                                              </select>
++                                            </div>
++
++                                            {/* Status */}
++                                            <div className="px-3 min-w-[90px] flex justify-center">
++                                              <select
++                                                value={task.status || '敺齒'}
++                                                onChange={e => onUpdateTask?.(task.id, { status: e.target.value })}
++                                                className="bg-gray-50 border border-gray-200 rounded px-1.5 py-1 outline-none focus:border-indigo-400 text-gray-700 font-bold w-full"
++                                              >
++                                                {Object.keys(statusConfig).map(st => (
++                                                  <option key={st} value={st}>{st}</option>
++                                                ))}
++                                              </select>
++                                            </div>
++                                            <div className="pl-3">
++                                              <NodeTypeTag type="task" />
+                                             </div>
+-                                            <TaskStatusBadge status={task.status} />
+-                                            <NodeTypeTag type="task" />
+                                           </div>
+                                         </div>
+                                       )}
+diff --git a/frontend/src/pages/Dashboard.tsx b/frontend/src/pages/Dashboard.tsx
+index eafec63..45e1e1a 100644
+--- a/frontend/src/pages/Dashboard.tsx
++++ b/frontend/src/pages/Dashboard.tsx
+@@ -6,10 +6,25 @@ import 'gantt-task-react/dist/index.css';
+ import WBSView from '../components/WBSView';
+ 
+ import {
+-  LayoutDashboard, Users, Settings, Search,
++  LayoutDashboard, Settings, Search,
+   Menu, X, FolderPlus, BarChart2, LogOut, List
+ } from 'lucide-react';
+ 
++const calcWorkingDays = (start?: string, end?: string) => {
++  if (!start || !end) return 0;
++  const dStart = new Date(start);
++  const dEnd = new Date(end);
++  if (isNaN(dStart.getTime()) || isNaN(dEnd.getTime()) || dEnd < dStart) return 0;
++  let days = 0;
++  let current = new Date(dStart);
++  while (current <= dEnd) {
++    const day = current.getDay();
++    if (day !== 0 && day !== 6) days++;
++    current.setDate(current.getDate() + 1);
++  }
++  return days;
++};
++
+ export default function Dashboard() {
+   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+   const navigate = useNavigate();
+@@ -20,6 +35,7 @@ export default function Dashboard() {
+ 
+   // View & selection
+   const [viewState, setViewState] = useState<'list' | 'gantt'>('list');
++  const [ganttViewMode, setGanttViewMode] = useState<ViewMode>(ViewMode.Day);
+   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
+ 
+   // Data
+@@ -31,8 +47,8 @@ export default function Dashboard() {
+   const [currentUser, setCurrentUser] = useState<any>(null);
+ 
+   // Form
+-  const [newTask, setNewTask] = useState({ title: '', projectId: null as number | null, startDate: '', endDate: '', assigneeId: null as number | null, phase: 'Planning' });
+-  const [newProject, setNewProject] = useState({ id: null as number | null, name: '', description: '', ownerId: null as number | null, startDate: '', endDate: '', budget: 0 });
++  const [newTask, setNewTask] = useState({ title: '', projectId: null as number | null, plannedStartDate: '', plannedEndDate: '', assigneeId: null as number | null, phase: 'Planning' });
++  const [newProject, setNewProject] = useState({ id: null as number | null, name: '', description: '', ownerId: null as number | null, plannedStartDate: '', plannedEndDate: '', budget: 0 });
+ 
+   useEffect(() => {
+     const userJson = localStorage.getItem('currentUser');
+@@ -115,15 +131,15 @@ export default function Dashboard() {
+     } catch { setProjects(prev => prev.map(p => p.id === projectId ? proj : p)); }
+   };
+ 
+-  const handleRenameTask = async (taskId: number, newTitle: string) => {
++  const handleUpdateTask = async (taskId: number, updates: any) => {
+     const task = tasks.find(t => t.id === taskId);
+     if (!task) return;
+-    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, title: newTitle } : t));
++    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, ...updates } : t));
+     try {
+       await fetch(`http://localhost:8080/api/tasks/${taskId}`, {
+         method: 'PATCH',
+         headers: { 'Content-Type': 'application/json' },
+-        body: JSON.stringify({ title: newTitle }),
++        body: JSON.stringify(updates),
+       });
+     } catch { setTasks(prev => prev.map(t => t.id === taskId ? task : t)); }
+   };
+@@ -138,14 +154,14 @@ export default function Dashboard() {
+     try {
+       const res = await fetch(url, {
+         method, headers: { 'Content-Type': 'application/json' },
+-        body: JSON.stringify({ ...newProject, status: 'ACTIVE', plannedStartDate: newProject.startDate, plannedEndDate: newProject.endDate }),
++        body: JSON.stringify({ ...newProject, status: 'ACTIVE' }),
+       });
+       if (res.ok) {
+         const saved = await res.json();
+         setProjects(newProject.id ? projects.map(p => p.id === saved.id ? saved : p) : [...projects, saved]);
+         setSelectedProjectId(saved.id);
+         setIsCreateProjectModalOpen(false);
+-        setNewProject({ id: null, name: '', description: '', ownerId: null, startDate: '', endDate: '', budget: 0 });
++        setNewProject({ id: null, name: '', description: '', ownerId: null, plannedStartDate: '', plannedEndDate: '', budget: 0 });
+       }
+     } catch (err) { console.error(err); }
+   };
+@@ -162,7 +178,7 @@ export default function Dashboard() {
+         const created = await res.json();
+         setTasks([created, ...tasks]);
+         setIsCreateTaskModalOpen(false);
+-        setNewTask({ title: '', projectId: selectedProjectId, startDate: '', endDate: '', assigneeId: null, phase: 'Planning' });
++        setNewTask({ title: '', projectId: selectedProjectId, plannedStartDate: '', plannedEndDate: '', assigneeId: null, phase: 'Planning' });
+       }
+     } catch (err) { console.error(err); }
+   };
+@@ -190,19 +206,58 @@ export default function Dashboard() {
+   const isOwner = currentUser && currentProject && currentProject.ownerId === currentUser.id;
+ 
+   const PHASES = ['Initiation', 'Planning', 'Execution', 'Monitoring', 'Closing'];
+-  const ganttTasks: GanttTask[] = tasks
+-    .filter(t => t.startDate && t.endDate && new Date(t.startDate) <= new Date(t.endDate))
+-    .map((t, i) => ({
+-      start: new Date(t.startDate), end: new Date(t.endDate), name: t.title,
+-      id: String(t.id || i), type: 'task' as const,
+-      progress: t.status === '撌脣??? ? 100 : (t.status === '?脰?銝? ? 50 : 0),
+-      isDisabled: true, styles: { progressColor: '#6366f1', progressSelectedColor: '#4f46e5' },
+-    }));
++  const ganttTasks: GanttTask[] = [];
++
++  if (currentProject) {
++    const projectStart = currentProject.plannedStartDate ? new Date(currentProject.plannedStartDate) : new Date();
++    const projectEnd = currentProject.plannedEndDate ? new Date(currentProject.plannedEndDate) : new Date();
++
++    ganttTasks.push({
++      start: projectStart, end: projectEnd, name: currentProject.name,
++      id: `project-${currentProject.id}`, type: 'project' as const, progress: 0, isDisabled: true,
++      styles: { progressColor: '#6366f1', progressSelectedColor: '#4f46e5' }
++    });
++
++    PHASES.forEach((phase, index) => {
++      const phaseTasks = tasks.filter(t => t.phase === phase && t.plannedStartDate && t.plannedEndDate);
++      if (phaseTasks.length > 0) {
++        const pStarts = phaseTasks.map(t => new Date(t.plannedStartDate).getTime());
++        const pEnds = phaseTasks.map(t => new Date(t.plannedEndDate).getTime());
++        const phaseStart = new Date(Math.min(...pStarts));
++        const phaseEnd = new Date(Math.max(...pEnds));
++
++        ganttTasks.push({
++          start: phaseStart, end: phaseEnd, name: `Phase ${index + 1}: ${phase}`,
++          id: `phase-${phase}`, type: 'project' as const, project: `project-${currentProject.id}`,
++          progress: 0, isDisabled: true, hideChildren: false,
++          styles: { progressColor: '#8b5cf6', progressSelectedColor: '#7c3aed', backgroundColor: '#eedeff' }
++        });
++
++        phaseTasks.forEach(t => {
++          let prog = 0;
++          if (t.status === '撌脣???) prog = 100;
++          else if (t.status === '?脰?銝? && t.plannedStartDate && t.plannedEndDate) {
++            const planD = calcWorkingDays(t.plannedStartDate, t.plannedEndDate) || 1;
++            const actD = calcWorkingDays(t.actualStartDate, t.actualEndDate) || 0;
++            prog = Math.min(100, Math.floor((actD / planD) * 100));
++          } else if (t.status === '?脰?銝?) {
++            prog = 50;
++          }
++
++          ganttTasks.push({
++            start: new Date(t.plannedStartDate), end: new Date(t.plannedEndDate), name: t.title,
++            id: String(t.id), type: 'task' as const, project: `phase-${phase}`,
++            progress: prog, isDisabled: true,
++            styles: { progressColor: '#3b82f6', progressSelectedColor: '#2563eb' }
++          });
++        });
++      }
++    });
++  }
+ 
+   const navItems = [
+     { name: '?銵冽', icon: LayoutDashboard, onClick: () => navigate('/dashboard'), active: true },
+-    { name: '???蝞∠?', icon: Users, onClick: () => navigate('/team'), active: false },
+-    { name: '蝟餌絞閮剖?', icon: Settings, onClick: () => {}, active: false },
++    { name: '蝟餌絞閮剖?', icon: Settings, onClick: () => { }, active: false },
+   ];
+ 
+   return (
+@@ -272,7 +327,7 @@ export default function Dashboard() {
+                 <button
+                   onClick={() => {
+                     setIsCreateTaskModalOpen(true);
+-                    setNewTask({ title: '', projectId: selectedProjectId, startDate: '', endDate: '', assigneeId: null, phase: 'Initiation' });
++                    setNewTask({ title: '', projectId: selectedProjectId, plannedStartDate: '', plannedEndDate: '', assigneeId: null, phase: 'Initiation' });
+                   }}
+                   className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold hover:bg-indigo-700 transition-all flex items-center shadow-lg shadow-indigo-200 text-sm"
+                 >
+@@ -296,7 +351,13 @@ export default function Dashboard() {
+                   </div>
+                   <div className="flex items-center gap-2 shrink-0">
+                     <button
+-                      onClick={() => { setNewProject({ ...currentProject, startDate: currentProject.plannedStartDate, endDate: currentProject.plannedEndDate }); setIsCreateProjectModalOpen(true); }}
++                      onClick={() => navigate(`/details/PROJECT/${currentProject.id}`)}
++                      className="px-3 py-2 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-xl hover:bg-indigo-100 transition-all shadow-sm"
++                    >
++                      ?? 閰喟敦蝬剛風?Ｘ
++                    </button>
++                    <button
++                      onClick={() => { setNewProject({ ...currentProject }); setIsCreateProjectModalOpen(true); }}
+                       className="px-3 py-2 bg-gray-50 text-gray-600 text-xs font-bold rounded-xl hover:bg-gray-100 transition-all"
+                     >
+                       ??蝺刻摩蝡?
+@@ -351,6 +412,24 @@ export default function Dashboard() {
+                   </button>
+                 </div>
+ 
++                {/* Gantt View Toggles */}
++                {viewState === 'gantt' && (
++                  <div className="flex items-center gap-2 bg-gray-50 p-1 rounded-lg border ml-4">
++                    <button
++                      onClick={() => setGanttViewMode(ViewMode.Day)}
++                      className={`px-3 py-1 text-xs font-bold rounded ${ganttViewMode === ViewMode.Day ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:bg-gray-100'}`}
++                    >
++                      憭?(Day)
++                    </button>
++                    <button
++                      onClick={() => setGanttViewMode(ViewMode.Week)}
++                      className={`px-3 py-1 text-xs font-bold rounded ${ganttViewMode === ViewMode.Week ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:bg-gray-100'}`}
++                    >
++                      ??(Week)
++                    </button>
++                  </div>
++                )}
++
+                 {/* Team avatars */}
+                 <div className="flex items-center gap-3">
+                   <div className="flex -space-x-1.5">
+@@ -363,9 +442,6 @@ export default function Dashboard() {
+                       );
+                     })}
+                   </div>
+-                  <button onClick={() => navigate('/team')} className="text-xs text-indigo-500 font-bold hover:text-indigo-700 hover:underline whitespace-nowrap">
+-                    蝞∠??? ({projectMembers.length})
+-                  </button>
+                 </div>
+               </div>
+ 
+@@ -380,7 +456,7 @@ export default function Dashboard() {
+                     selectedProjectId={selectedProjectId}
+                     onTaskMoved={handleTaskMoved}
+                     onRenameProject={handleRenameProject}
+-                    onRenameTask={handleRenameTask}
++                    onUpdateTask={handleUpdateTask}
+                   />
+                 ) : (
+                   <div className="h-full">
+@@ -389,7 +465,22 @@ export default function Dashboard() {
+                     </p>
+                     {ganttTasks.length > 0 ? (
+                       <div className="rounded-xl border border-gray-100 overflow-hidden">
+-                        <Gantt tasks={ganttTasks} viewMode={ViewMode.Day} listCellWidth="" columnWidth={60} locale="zh" />
++                        <Gantt
++                          tasks={ganttTasks}
++                          viewMode={ganttViewMode}
++                          listCellWidth=""
++                          columnWidth={60}
++                          locale="zh"
++                          onClick={(task) => {
++                            if (task.id.startsWith('project-')) {
++                              navigate('/details/PROJECT/' + task.id.split('-')[1]);
++                            } else if (task.id.startsWith('phase-')) {
++                              navigate('/details/PHASE/' + selectedProjectId + '-' + task.id.substring(6));
++                            } else {
++                              navigate('/details/TASK/' + task.id);
++                            }
++                          }}
++                        />
+                       </div>
+                     ) : (
+                       <div className="flex flex-col items-center justify-center py-20 text-center">
+@@ -455,13 +546,13 @@ export default function Dashboard() {
+                 </div>
+                 <div className="grid grid-cols-2 gap-4">
+                   <div>
+-                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">???交?</label>
+-                    <input type="date" value={newTask.startDate} onChange={e => setNewTask({ ...newTask, startDate: e.target.value })}
++                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">閬????交?</label>
++                    <input type="date" value={newTask.plannedStartDate} onChange={e => setNewTask({ ...newTask, plannedStartDate: e.target.value })}
+                       className="w-full px-4 py-2.5 bg-gray-50 border-2 border-transparent focus:border-indigo-400 rounded-xl outline-none text-sm font-bold" />
+                   </div>
+                   <div>
+-                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">蝯??交?</label>
+-                    <input type="date" value={newTask.endDate} onChange={e => setNewTask({ ...newTask, endDate: e.target.value })}
++                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">閬?蝯??交?</label>
++                    <input type="date" value={newTask.plannedEndDate} onChange={e => setNewTask({ ...newTask, plannedEndDate: e.target.value })}
+                       className="w-full px-4 py-2.5 bg-gray-50 border-2 border-transparent focus:border-indigo-400 rounded-xl outline-none text-sm font-bold" />
+                   </div>
+                 </div>

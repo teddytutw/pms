@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft, Paperclip, Users, FileText, Download, Trash2, Plus, Save
+  ArrowLeft, Paperclip, Users, FileText, Download, Trash2, Plus, Save, ShieldCheck
 } from 'lucide-react';
 import Select from 'react-select';
 
@@ -11,6 +11,11 @@ interface User {
   name: string;
   email: string;
   username?: string;
+}
+
+interface Role {
+  id: number;
+  roleName: string;
 }
 
 interface Attachment {
@@ -56,6 +61,7 @@ export default function EntityDetails() {
   const [activeTab, setActiveTab] = useState('details');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
@@ -102,6 +108,7 @@ export default function EntityDetails() {
     if (!userJson) { navigate('/login'); return; }
     setCurrentUser(JSON.parse(userJson));
     fetchAllUsers();
+    fetchRoles();
     fetchEntityData();
     fetchAttachments();
   }, [targetType, targetId]);
@@ -109,6 +116,15 @@ export default function EntityDetails() {
   const fetchAllUsers = async () => {
     const res = await fetch((import.meta as any).env.BASE_URL + 'api/users');
     if (res.ok) setAllUsers(await res.json());
+  };
+
+  const fetchRoles = async () => {
+    try {
+      const res = await fetch((import.meta as any).env.BASE_URL + 'api/responsible-roles');
+      if (res.ok) setRoles(await res.json());
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const fetchEntityData = async () => {
@@ -318,7 +334,7 @@ export default function EntityDetails() {
   };
 
   // ── Multi-select role options ─────────────────────────────────
-  const roleOptions = ROLE_KEYS.map(r => ({ value: r, label: r }));
+  const roleOptions = roles.map(r => ({ value: r.roleName, label: r.roleName }));
   const selectedRoles = roleOptions.filter(o => form.responsibleRoles.includes(o.value));
 
 
@@ -392,7 +408,14 @@ export default function EntityDetails() {
             {tab.label}
           </button>
         ))}
-        {/* Role management shortcut removed as per requirement */}
+        {/* Role management shortcut */}
+        <button
+          onClick={() => navigate('/roles')}
+          className="ml-auto flex items-center px-4 py-2 my-1.5 text-xs font-bold text-indigo-500 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-all self-center"
+        >
+          <ShieldCheck className="w-3.5 h-3.5 mr-1" />
+          團隊角色維護
+        </button>
       </div>
 
       {/* ── Content ── */}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+﻿import { useState, useEffect, useRef, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import Select from 'react-select';
 import { Gantt, Task as GanttTask, ViewMode } from 'gantt-task-react';
@@ -6,37 +6,26 @@ import 'gantt-task-react/dist/index.css';
 import WBSView from '../components/WBSView';
 
 import {
-  Search, Plus,
+  Search,
   ChevronLeft, ChevronRight, ArrowUp, ArrowDown, CalendarClock, Download,
   Folder, FileSpreadsheet
 } from 'lucide-react';
 import Sidebar from '../components/Sidebar';
 import ProjectSelectorModal from '../components/ProjectSelectorModal';
 import ImportModal from '../components/ImportModal';
-
-// const formatDate = (dateStr?: string) => {
-//   if (!dateStr) return '-';
-//   const date = new Date(dateStr);
-//   if (isNaN(date.getTime())) return '-';
-//   const m = String(date.getMonth() + 1).padStart(2, '0');
-//   const d = String(date.getDate()).padStart(2, '0');
-//   const y = date.getFullYear();
-//   return `${m}/${d}/${y}`;
-// };
-
+import TaskDetailView from '../components/TaskDetailView';
 
 export default function Dashboard() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const location = useLocation();
 
-  // Resize state
-  const [wbsWidthPercentage, setWbsWidthPercentage] = useState(45);
+  // Resize state (Initial ratio for Detail mode: WBS is 66.66% of total)
+  const [wbsWidthPercentage, setWbsWidthPercentage] = useState(66.66);
   const [isResizing, setIsResizing] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Modal state
   const [isCreateTaskModalOpen, setIsCreateTaskModalOpen] = useState(false);
-  const [isCreateProjectModalOpen, setIsCreateProjectModalOpen] = useState(false);
   const [isRescheduleModalOpen, setIsRescheduleModalOpen] = useState(false);
   const [rescheduleMode, setRescheduleMode] = useState<'start' | 'end'>('start');
   const [rescheduleDate, setRescheduleDate] = useState('');
@@ -46,24 +35,35 @@ export default function Dashboard() {
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [rightPaneMode, setRightPaneMode] = useState<'detail' | 'gantt' | 'both'>('detail');
+
+  // Auto-adjust layout based on requested ratios
+  useEffect(() => {
+    if (rightPaneMode === 'detail') {
+      setWbsWidthPercentage(66.66); // 2:1 ratio (WBS is 2x Right)
+    } else if (rightPaneMode === 'gantt') {
+      setWbsWidthPercentage(50);    // 1:1 ratio
+    } else if (rightPaneMode === 'both') {
+      setWbsWidthPercentage(30);    // Give more room to the two right panes
+    }
+  }, [rightPaneMode]);
 
   // Detail State
-  const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
+  const [selectedItem, setSelectedItem] = useState<{ type: 'PROJECT' | 'PHASE' | 'TASK' | null, id: string | number | null }>({ type: null, id: null });
+  const selectedTaskId = selectedItem.type === 'TASK' ? (selectedItem.id as number) : null;
 
   // Data
   const [tasks, setTasks] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [gates, setGates] = useState<any[]>([]);
-  // const [currentUser, setCurrentUser] = useState<any>(null);
+  const [roles, setRoles] = useState<any[]>([]);
 
   // Per-modal dynamic properties
   const [modalGates, setModalGates] = useState<any[]>([]);
-  const [modalMembers, setModalMembers] = useState<any[]>([]);
 
   // Form
   const [newTask, setNewTask] = useState({ title: '', projectId: null as number | null, plannedStartDate: '', plannedEndDate: '', assigneeId: null as number | null, phase: '' });
-  const [newProject, setNewProject] = useState({ id: null as number | null, name: '', description: '', ownerId: null as number | null, plannedStartDate: '', plannedEndDate: '', budget: 0 });
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -71,7 +71,7 @@ export default function Dashboard() {
       const containerRect = containerRef.current.getBoundingClientRect();
       const relativeX = e.clientX - containerRect.left;
       const newPercentage = (relativeX / containerRect.width) * 100;
-      setWbsWidthPercentage(newPercentage);
+      setWbsWidthPercentage(Math.max(10, Math.min(90, newPercentage)));
     };
     const handleMouseUp = () => setIsResizing(false);
     if (isResizing) {
@@ -104,31 +104,15 @@ export default function Dashboard() {
         setGates([]);
         setModalGates([]);
       });
-
-    fetch((import.meta as any).env.BASE_URL + `api/projects/${projectId}/members`)
-      .then(res => res.json())
-      .then(data => setModalMembers(data))
-      .catch(err => console.error(err));
   };
-
   useEffect(() => {
-    const userJson = localStorage.getItem('currentUser');
-    if (userJson) {
-      // const u = JSON.parse(userJson);
-      // setCurrentUser(u);
-    }
-
     fetch((import.meta as any).env.BASE_URL + 'api/projects')
       .then(res => res.json())
       .then(data => {
         setProjects(data);
-        
-        // Priority: 1. Navigation State, 2. Session Storage
         const statePid = location.state?.selectedProjectId;
         const storedPid = sessionStorage.getItem('dashboard_selectedProjectId');
-        
         const pidToSet = statePid || (storedPid ? parseInt(storedPid) : null);
-        
         if (pidToSet) {
           setSelectedProjectId(pidToSet);
           fetchProjectDetails(pidToSet);
@@ -141,9 +125,13 @@ export default function Dashboard() {
       .then(res => res.json())
       .then(data => setUsers(data))
       .catch(err => console.error(err));
+
+    fetch((import.meta as any).env.BASE_URL + 'api/responsible-roles')
+      .then(res => res.json())
+      .then(data => setRoles(data))
+      .catch(err => console.error(err));
   }, []);
 
-  // Persist project selection when changed manually
   useEffect(() => {
     if (selectedProjectId) {
       sessionStorage.setItem('dashboard_selectedProjectId', selectedProjectId.toString());
@@ -221,23 +209,6 @@ export default function Dashboard() {
     } catch (err) { console.error(err); }
   };
 
-  const handleCreateProject = async () => {
-    if (!newProject.name) return;
-    try {
-      const res = await fetch((import.meta as any).env.BASE_URL + 'api/projects', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...newProject, type: 'Project' })
-      });
-      if (res.ok) {
-        setIsCreateProjectModalOpen(false);
-        setNewProject({ id: null, name: '', description: '', ownerId: null, plannedStartDate: '', plannedEndDate: '', budget: 0 });
-        const AllProjects = await (await fetch((import.meta as any).env.BASE_URL + 'api/projects')).json();
-        setProjects(AllProjects);
-      }
-    } catch (err) { console.error(err); }
-  };
-
   const handleRenameProject = async (id: number, newName: string) => {
     try {
       const res = await fetch((import.meta as any).env.BASE_URL + `api/projects/${id}`, {
@@ -281,29 +252,16 @@ export default function Dashboard() {
     } catch (err) { console.error(err); }
   };
 
-  const handleSelectTask = (taskId: number | null) => {
-    setSelectedTaskId(taskId);
+  const handleSelectItem = (type: 'PROJECT' | 'PHASE' | 'TASK', id: string | number) => {
+    setSelectedItem({ type, id });
   };
 
   const handleAdjustTask = async (direction: 'indent' | 'outdent' | 'up' | 'down') => {
-    if (!selectedTaskId) {
-      console.warn('No task selected for adjustment');
-      return;
-    }
-    console.log(`Adjusting task ${selectedTaskId} direction: ${direction}`);
+    if (!selectedTaskId) return;
     try {
-      const res = await fetch((import.meta as any).env.BASE_URL + `api/tasks/${selectedTaskId}/adjust?direction=${direction}`, {
-        method: 'POST'
-      });
-      if (res.ok) {
-        if (selectedProjectId) {
-          fetchProjectDetails(selectedProjectId);
-        }
-      } else {
-        const errText = await res.text();
-        console.error(`Adjust failed: ${errText}`);
-      }
-    } catch (err) { console.error('Error in handleAdjustTask:', err); }
+      const res = await fetch((import.meta as any).env.BASE_URL + `api/tasks/${selectedTaskId}/adjust?direction=${direction}`, { method: 'POST' });
+      if (res.ok && selectedProjectId) fetchProjectDetails(selectedProjectId);
+    } catch (err) { console.error(err); }
   };
 
   const handleReschedule = async () => {
@@ -325,13 +283,9 @@ export default function Dashboard() {
     const list: GanttTask[] = [];
     if (!selectedProjectId) return list;
 
-    // Parse date-only strings as LOCAL time (not UTC) to align with
-    // gantt-task-react's local-midnight column boundaries.
     const safeDate = (dateStr: string | null | undefined, fallback: Date, isEnd = false): Date => {
       if (!dateStr) return fallback;
-      const localStr = dateStr.length === 10
-        ? `${dateStr}T${isEnd ? '23:59:59' : '00:00:00'}`
-        : dateStr;
+      const localStr = dateStr.length === 10 ? `${dateStr}T${isEnd ? '23:59:59' : '00:00:00'}` : dateStr;
       const d = new Date(localStr);
       return isNaN(d.getTime()) ? fallback : d;
     };
@@ -341,11 +295,6 @@ export default function Dashboard() {
 
     const pStart = safeDate(proj.plannedStartDate, new Date());
     const pEnd   = safeDate(proj.plannedEndDate,   new Date(), true);
-
-    // CRITICAL: Every task MUST have a unique, stable displayOrder.
-    // gantt-task-react's internal sortTasks sorts by displayOrder.
-    // Without it (undefined → Number.MAX_VALUE), the sort is unstable and
-    // triggers an infinite "Maximum update depth exceeded" loop.
     let order = 0;
 
     list.push({
@@ -366,7 +315,6 @@ export default function Dashboard() {
     phasesInOrder.forEach((phaseName) => {
       const phaseTasks = tasks.filter(t => t.phase === phaseName);
       if (phaseTasks.length === 0) return;
-
       const phaseStart = new Date(Math.min(...phaseTasks.map(t => safeDate(t.plannedStartDate, pStart).getTime())));
       const phaseEnd   = new Date(Math.max(...phaseTasks.map(t => safeDate(t.plannedEndDate, pEnd, true).getTime())));
 
@@ -392,9 +340,7 @@ export default function Dashboard() {
           type: 'task',
           progress: task.status === 'DONE' ? 100 : 0,
           displayOrder: ++order,
-          dependencies: (task.predecessors || '').split(',')
-            .map((p: string) => p.trim().replace(/^T/, ''))
-            .filter((id: string) => id && allTaskIds.has(id)),
+          dependencies: (task.predecessors || '').split(',').map((p: string) => p.trim().replace(/^T/, '')).filter((id: string) => id && allTaskIds.has(id)),
           styles: { backgroundColor: '#e2e8f0', backgroundSelectedColor: '#cbd5e1', progressColor: '#4f46e5', progressSelectedColor: '#4338ca' }
         });
       });
@@ -403,7 +349,6 @@ export default function Dashboard() {
     if (tasksWithoutPhase.length > 0) {
       const cStart = new Date(Math.min(...tasksWithoutPhase.map(t => safeDate(t.plannedStartDate, pStart).getTime())));
       const cEnd   = new Date(Math.max(...tasksWithoutPhase.map(t => safeDate(t.plannedEndDate, pEnd, true).getTime())));
-
       list.push({
         id: `phase-common`,
         name: 'Common Tasks',
@@ -414,7 +359,6 @@ export default function Dashboard() {
         displayOrder: ++order,
         styles: { backgroundColor: '#94a3b8', backgroundSelectedColor: '#64748b' }
       });
-
       tasksWithoutPhase.forEach(task => {
         const tStart = safeDate(task.plannedStartDate, cStart);
         const tEnd   = safeDate(task.plannedEndDate,   tStart, true);
@@ -426,58 +370,39 @@ export default function Dashboard() {
           type: 'task',
           progress: task.status === 'DONE' ? 100 : 0,
           displayOrder: ++order,
-          dependencies: (task.predecessors || '').split(',')
-            .map((p: string) => p.trim().replace(/^T/, ''))
-            .filter((id: string) => id && allTaskIds.has(id)),
+          dependencies: (task.predecessors || '').split(',').map((p: string) => p.trim().replace(/^T/, '')).filter((id: string) => id && allTaskIds.has(id)),
           styles: { backgroundColor: '#e2e8f0', backgroundSelectedColor: '#cbd5e1', progressColor: '#4f46e5', progressSelectedColor: '#4338ca' }
         });
       });
     }
-
     return list;
   }, [tasks, projects, selectedProjectId]);
 
-
-
-
-
   const currentProject = projects.find(p => p.id === selectedProjectId);
 
-  // WBS Map for simple display
   const wbsMap = useMemo(() => {
     const map: Record<number, string> = {};
     const phaseGateNames = new Set(gates.map(g => g.phaseName));
     const phases = Array.from(new Set(gates.map(g => g.phaseName))).filter(Boolean);
-
     const assignRecursive = (taskList: any[], parentId: number | null, prefix: string) => {
-      // Use == for loose equality to handle string vs number IDs
-      const children = taskList
-        .filter(t => (t.parentTaskId || null) == parentId)
-        .sort((a, b) => (a.displayOrder ?? a.id) - (b.displayOrder ?? b.id));
-      
+      const children = taskList.filter(t => (t.parentTaskId || null) == parentId).sort((a, b) => (a.displayOrder ?? a.id) - (b.displayOrder ?? b.id));
       children.forEach((t, i) => {
         const code = prefix ? `${prefix}.${i + 1}` : `${i + 1}`;
         map[t.id] = code;
         assignRecursive(taskList, t.id, code);
       });
     };
-
-    // 1. Phased Tasks
     phases.forEach((p, pi) => {
       const pts = tasks.filter(t => t.phase === p);
       assignRecursive(pts, null, String(pi + 1));
     });
-
-    // 2. Common Tasks
     const common = tasks.filter(t => !t.phase || !phaseGateNames.has(t.phase));
     assignRecursive(common, null, 'C');
-
     return map;
   }, [tasks, gates]);
 
-
   return (
-    <div className="h-screen flex flex-col bg-white overflow-hidden">
+    <div className="h-screen flex flex-col bg-white overflow-hidden font-sans">
       <div className="flex flex-1 overflow-hidden">
         <Sidebar isSidebarOpen={isSidebarOpen} setIsSidebarOpen={setIsSidebarOpen} />
         
@@ -495,295 +420,144 @@ export default function Dashboard() {
              <div className="flex items-center gap-4">
                 <button 
                   onClick={() => setIsProjectModalOpen(true)}
-                  className="flex items-center gap-2 px-4 py-2 bg-slate-50 border border-slate-100 rounded-xl text-[11px] font-black text-slate-600 hover:bg-slate-100 transition-all"
+                  className="flex items-center gap-2 px-4 py-2 bg-slate-50 border border-slate-100 rounded-xl text-[11px] font-black text-slate-600 hover:bg-slate-100 transition-all font-mono uppercase tracking-tighter"
                 >
                   <Search className="w-4 h-4" /> SELECT PROJECT
                 </button>
                 <div className="w-[1px] h-6 bg-gray-100" />
-                <button 
-                  disabled={!selectedProjectId}
-                  onClick={() => setIsRescheduleModalOpen(true)}
-                  className="p-2 text-amber-500 hover:bg-amber-50 rounded-xl transition-all disabled:opacity-20" title="Reschedule"
-                >
-                  <CalendarClock className="w-5 h-5" />
-                </button>
-                <button 
-                  disabled={!selectedProjectId}
-                  onClick={handleExportProject}
-                  className="p-2 text-indigo-500 hover:bg-indigo-50 rounded-xl transition-all disabled:opacity-20" title="Export MPP"
-                >
-                  <Download className="w-5 h-5" />
-                </button>
-                <button 
-                  disabled={!selectedProjectId}
-                  onClick={() => setIsImportModalOpen(true)}
-                  className="p-2 text-emerald-500 hover:bg-emerald-50 rounded-xl transition-all disabled:opacity-20" title="Import WBS"
-                >
-                  <FileSpreadsheet className="w-5 h-5" />
-                </button>
+                <button disabled={!selectedProjectId} onClick={() => setIsRescheduleModalOpen(true)} className="p-2 text-amber-500 hover:bg-amber-50 rounded-xl transition-all disabled:opacity-20"><CalendarClock className="w-5 h-5" /></button>
+                <button disabled={!selectedProjectId} onClick={handleExportProject} className="p-2 text-indigo-500 hover:bg-indigo-50 rounded-xl transition-all disabled:opacity-20"><Download className="w-5 h-5" /></button>
+                <button disabled={!selectedProjectId} onClick={() => setIsImportModalOpen(true)} className="p-2 text-emerald-500 hover:bg-emerald-50 rounded-xl transition-all disabled:opacity-20"><FileSpreadsheet className="w-5 h-5" /></button>
              </div>
           </header>
 
           <div className="flex-1 flex flex-col min-h-0">
              <div className="flex items-center justify-between px-6 py-4 bg-white border-b border-gray-100 flex-shrink-0">
                 <div className="flex items-center gap-6">
-                   <div className="font-black text-[10px] text-slate-500 uppercase tracking-widest">WBS Schedule & Control</div>
+                   <div className="font-black text-[10px] text-slate-500 uppercase tracking-widest whitespace-nowrap">WBS Control</div>
                    
-                   {/* Global WBS Action Toolbar */}
+                   {/* View Mode Radio Group */}
+                   <div className="flex items-center gap-4 bg-gray-50 px-4 py-1.5 rounded-xl border border-gray-100">
+                     <label className="flex items-center gap-2 cursor-pointer group">
+                       <input type="radio" name="vm" checked={rightPaneMode === 'detail'} onChange={() => setRightPaneMode('detail')} className="w-3.5 h-3.5 text-indigo-600" />
+                       <span className={`text-[10px] font-black uppercase tracking-tight ${rightPaneMode === 'detail' ? 'text-indigo-600' : 'text-slate-400'}`}>Detail</span>
+                     </label>
+                     <label className="flex items-center gap-2 cursor-pointer group">
+                       <input type="radio" name="vm" checked={rightPaneMode === 'gantt'} onChange={() => setRightPaneMode('gantt')} className="w-3.5 h-3.5 text-indigo-600" />
+                       <span className={`text-[10px] font-black uppercase tracking-tight ${rightPaneMode === 'gantt' ? 'text-indigo-600' : 'text-slate-400'}`}>Gantt</span>
+                     </label>
+                     <label className="flex items-center gap-2 cursor-pointer group">
+                       <input type="radio" name="vm" checked={rightPaneMode === 'both'} onChange={() => setRightPaneMode('both')} className="w-3.5 h-3.5 text-indigo-600" />
+                       <span className={`text-[10px] font-black uppercase tracking-tight ${rightPaneMode === 'both' ? 'text-indigo-600' : 'text-slate-400'}`}>Both</span>
+                     </label>
+                   </div>
+
                    <div className="flex items-center gap-1.5 px-3 py-1 bg-gray-50 rounded-lg border border-gray-100">
-                     <button 
-                       onClick={() => handleAdjustTask('outdent')} 
-                       disabled={!selectedTaskId}
-                       className={`p-1 rounded transition-all ${selectedTaskId ? 'text-indigo-600 hover:bg-white hover:shadow-sm' : 'text-gray-300 pointer-events-none'}`}
-                       title="Outdent (Move Up Level)"
-                     >
-                       <ChevronLeft className="w-3.5 h-3.5" />
-                     </button>
-                     <button 
-                       onClick={() => handleAdjustTask('indent')} 
-                       disabled={!selectedTaskId}
-                       className={`p-1 rounded transition-all ${selectedTaskId ? 'text-indigo-600 hover:bg-white hover:shadow-sm' : 'text-gray-300 pointer-events-none'}`}
-                       title="Indent (Move Down Level)"
-                     >
-                       <ChevronRight className="w-3.5 h-3.5" />
-                     </button>
+                     <button onClick={() => handleAdjustTask('outdent')} disabled={!selectedTaskId} className={`p-1 rounded ${selectedTaskId ? 'text-indigo-600 hover:bg-white' : 'text-gray-300'}`}><ChevronLeft className="w-3.5 h-3.5" /></button>
+                     <button onClick={() => handleAdjustTask('indent')} disabled={!selectedTaskId} className={`p-1 rounded ${selectedTaskId ? 'text-indigo-600 hover:bg-white' : 'text-gray-300'}`}><ChevronRight className="w-3.5 h-3.5" /></button>
                      <div className="w-[1px] h-3 bg-gray-200 mx-0.5" />
-                     <button 
-                       onClick={() => handleAdjustTask('up')} 
-                       disabled={!selectedTaskId}
-                       className={`p-1 rounded transition-all ${selectedTaskId ? 'text-indigo-600 hover:bg-white hover:shadow-sm' : 'text-gray-300 pointer-events-none'}`}
-                       title="Move Up"
-                     >
-                       <ArrowUp className="w-3.5 h-3.5" />
-                     </button>
-                     <button 
-                       onClick={() => handleAdjustTask('down')} 
-                       disabled={!selectedTaskId}
-                       className={`p-1 rounded transition-all ${selectedTaskId ? 'text-indigo-600 hover:bg-white hover:shadow-sm' : 'text-gray-300 pointer-events-none'}`}
-                       title="Move Down"
-                     >
-                       <ArrowDown className="w-3.5 h-3.5" />
-                     </button>
+                     <button onClick={() => handleAdjustTask('up')} disabled={!selectedTaskId} className={`p-1 rounded ${selectedTaskId ? 'text-indigo-600 hover:bg-white' : 'text-gray-300'}`}><ArrowUp className="w-3.5 h-3.5" /></button>
+                     <button onClick={() => handleAdjustTask('down')} disabled={!selectedTaskId} className={`p-1 rounded ${selectedTaskId ? 'text-indigo-600 hover:bg-white' : 'text-gray-300'}`}><ArrowDown className="w-3.5 h-3.5" /></button>
                    </div>
 
                    <div className="flex items-center gap-1.5">
-                      <button 
-                        onClick={() => {
-                          const name = prompt('Phase Name:');
-                          if (name && selectedProjectId) handleAddPhase(selectedProjectId, name);
-                        }}
-                        className="bg-violet-600 text-white px-3 py-1 rounded-lg text-[9px] font-black flex items-center hover:bg-violet-700 transition-all shadow-sm"
-                      >
-                        <Plus className="w-3 h-3 mr-1" /> PHASE
-                      </button>
-                      
-                      <button 
-                        onClick={() => {
-                          setIsCreateTaskModalOpen(true);
-                          setNewTask(p => ({ ...p, projectId: selectedProjectId, title: '', plannedStartDate: '', plannedEndDate: '' }));
-                        }}
-                        className="bg-indigo-600 text-white px-3 py-1 rounded-lg text-[9px] font-black flex items-center hover:bg-indigo-700 transition-all shadow-sm"
-                      >
-                        <Plus className="w-3 h-3 mr-1" /> TASK
-                      </button>
-
-                      <button 
-                        onClick={() => {
-                          setIsCreateTaskModalOpen(true);
-                          const today = new Date().toISOString().split('T')[0];
-                          setNewTask(p => ({ 
-                            ...p, 
-                            projectId: selectedProjectId, 
-                            title: 'GATE: ',
-                            plannedStartDate: today, 
-                            plannedEndDate: today 
-                          }));
-                        }}
-                        className="bg-amber-500 text-white px-3 py-1 rounded-lg text-[9px] font-black flex items-center hover:bg-amber-600 transition-all shadow-sm"
-                      >
-                        <Plus className="w-3 h-3 mr-1" /> GATE
-                      </button>
+                      <button onClick={() => { const n = prompt('Phase:'); if (n && selectedProjectId) handleAddPhase(selectedProjectId, n); }} className="bg-violet-600 text-white px-3 py-1 rounded-lg text-[9px] font-black shadow-sm">PHASE +</button>
+                      <button onClick={() => { setIsCreateTaskModalOpen(true); setNewTask(p => ({ ...p, projectId: selectedProjectId, title: '', plannedStartDate: '', plannedEndDate: '' })); }} className="bg-indigo-600 text-white px-3 py-1 rounded-lg text-[9px] font-black shadow-sm">TASK +</button>
+                      <button onClick={() => { setIsCreateTaskModalOpen(true); const t = new Date().toISOString().split('T')[0]; setNewTask(p => ({ ...p, projectId: selectedProjectId, title: 'GATE: ', plannedStartDate: t, plannedEndDate: t })); }} className="bg-amber-500 text-white px-3 py-1 rounded-lg text-[9px] font-black shadow-sm">GATE +</button>
                    </div>
                 </div>
-                 <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-1 bg-gray-50 p-1 rounded-xl border border-gray-100 text-[8px] font-black tracking-wider">
-                     <button onClick={() => setGanttViewMode(ViewMode.Day)} className={`px-2 py-1.5 rounded-lg transition-all ${ganttViewMode === ViewMode.Day ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-400 hover:text-indigo-400'}`}>DAY</button>
-                     <button onClick={() => setGanttViewMode(ViewMode.Week)} className={`px-2 py-1.5 rounded-lg transition-all ${ganttViewMode === ViewMode.Week ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-400 hover:text-indigo-400'}`}>WK</button>
-                     <button onClick={() => setGanttViewMode(ViewMode.Month)} className={`px-2 py-1.5 rounded-lg transition-all ${ganttViewMode === ViewMode.Month ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-400 hover:text-indigo-400'}`}>MO</button>
-                     <button onClick={() => setGanttViewMode(ViewMode.Year)} className={`px-2 py-1.5 rounded-lg transition-all ${ganttViewMode === ViewMode.Year ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-400 hover:text-indigo-400'}`}>YR</button>
-                  </div>
+                <div className="flex items-center gap-1 bg-gray-50 p-1 rounded-xl border border-gray-100 text-[8px] font-black">
+                   <button onClick={() => setGanttViewMode(ViewMode.Day)} className={`px-2 py-1 rounded ${ganttViewMode === ViewMode.Day ? 'bg-white shadow text-indigo-600' : 'text-gray-400'}`}>DAY</button>
+                   <button onClick={() => setGanttViewMode(ViewMode.Week)} className={`px-2 py-1 rounded ${ganttViewMode === ViewMode.Week ? 'bg-white shadow text-indigo-600' : 'text-gray-400'}`}>WK</button>
+                   <button onClick={() => setGanttViewMode(ViewMode.Month)} className={`px-2 py-1 rounded ${ganttViewMode === ViewMode.Month ? 'bg-white shadow text-indigo-600' : 'text-gray-400'}`}>MO</button>
+                   <button onClick={() => setGanttViewMode(ViewMode.Year)} className={`px-2 py-1 rounded ${ganttViewMode === ViewMode.Year ? 'bg-white shadow text-indigo-600' : 'text-gray-400'}`}>YR</button>
                 </div>
              </div>
+
              <div ref={containerRef} className="flex-1 flex overflow-hidden relative">
-                 <div style={{ width: `${wbsWidthPercentage}%` }} className="border-r border-gray-100 overflow-y-auto">
-                   <WBSView 
-                     projects={projects} 
-                     tasks={tasks} 
-                     gates={gates} 
-                     users={users} 
-                     selectedProjectId={selectedProjectId} 
-                     onTaskMoved={handleTaskMoved} 
-                     onRenameProject={handleRenameProject} 
-                     onReorderPhases={handleReorderPhases} 
-                     onSelectTask={handleSelectTask} 
-                     selectedTaskId={selectedTaskId} 
-                     onUpdateTask={handleUpdateTask} 
-                     onUpdatePhase={handleUpdatePhase}
-                     onAdjustTask={handleAdjustTask} 
-                     onDeleteTask={handleDeleteTask}
-                     wbsMap={wbsMap} 
-                   />
+                 <div style={{ width: `${wbsWidthPercentage}%` }} className="border-r border-gray-100 overflow-y-auto no-scrollbar">
+                    <WBSView 
+                      projects={projects} tasks={tasks} gates={gates} users={users} roles={roles}
+                      selectedProjectId={selectedProjectId} 
+                      onTaskMoved={handleTaskMoved} onRenameProject={handleRenameProject} onReorderPhases={handleReorderPhases} 
+                      onSelectTask={(id) => handleSelectItem('TASK', id)}
+                      onSelectPhase={(id) => handleSelectItem('PHASE', id)}
+                      onSelectProject={(id) => handleSelectItem('PROJECT', id)}
+                      selectedTaskId={selectedTaskId} 
+                      onUpdateTask={handleUpdateTask} onUpdatePhase={handleUpdatePhase}
+                      onAdjustTask={handleAdjustTask} onDeleteTask={handleDeleteTask}
+                      wbsMap={wbsMap} 
+                    />
                  </div>
 
-                <div
-                   className={`w-1.5 hover:w-2 bg-transparent hover:bg-gray-200 cursor-col-resize transition-all z-20 shrink-0 ${isResizing ? 'bg-indigo-400 w-2' : ''}`}
-                   onMouseDown={(e) => { e.preventDefault(); setIsResizing(true); }}
-                >
-                  <div className="h-full w-full flex items-center justify-center opacity-0 hover:opacity-100">
-                     <div className="w-0.5 h-8 bg-gray-300 rounded-full" />
-                  </div>
-                </div>
+                <div className="w-1.5 hover:bg-gray-200 cursor-col-resize z-20 shrink-0" onMouseDown={(e) => { e.preventDefault(); setIsResizing(true); }} />
 
-                <div style={{ width: `${100 - wbsWidthPercentage}%` }} className="bg-white overflow-auto border-l border-gray-100 flex flex-col">
-                  {ganttTasks.length > 0 ? (
-                    <div className="gantt-container h-full">
-                      <Gantt 
-                         tasks={ganttTasks} 
-                         viewMode={ganttViewMode} 
-                         locale="en" 
-                         listCellWidth=""
-                         columnWidth={65} 
-                         rowHeight={32}
-                         fontSize="11px"
-                         headerHeight={45}
-                         barCornerRadius={2}
-                         todayColor="rgba(37, 99, 235, 0.04)"
-                         onClick={t => !t.id.startsWith('project') && !t.id.startsWith('phase') && handleSelectTask(parseInt(t.id))} 
-                      />
-                    </div>
-                  ) : (
-                    <div className="h-full flex items-center justify-center text-gray-300 font-black text-[10px] uppercase tracking-widest italic">Set dates to view Gantt Chart</div>
-                  )}
+                <div style={{ width: `${100 - wbsWidthPercentage}%` }} className="bg-white border-l border-gray-100 flex overflow-hidden">
+                   {(rightPaneMode === 'detail' || rightPaneMode === 'both') && (
+                     <div className={`${rightPaneMode === 'both' ? 'w-1/2 border-r border-gray-100' : 'w-full'} h-full flex flex-col`}>
+                        <TaskDetailView allUsers={users} allRoles={roles} 
+                          targetType={selectedItem.type} targetId={selectedItem.id} 
+                          onUpdateSuccess={() => selectedProjectId && fetchProjectDetails(selectedProjectId)}
+                        />
+                     </div>
+                   )}
+                   {(rightPaneMode === 'gantt' || rightPaneMode === 'both') && (
+                     <div className={`${rightPaneMode === 'both' ? 'w-1/2' : 'w-full'} h-full flex flex-col overflow-hidden`}>
+                        {ganttTasks.length > 0 ? (
+                           <div className="gantt-container h-full overflow-auto no-scrollbar">
+                             <Gantt 
+                               tasks={ganttTasks} viewMode={ganttViewMode} locale="en" listCellWidth="" columnWidth={65} rowHeight={32} fontSize="11px" headerHeight={45} barCornerRadius={2} todayColor="rgba(37, 99, 235, 0.04)"
+                               onClick={t => {
+                                 if (t.id.startsWith('project')) handleSelectItem('PROJECT', parseInt(t.id.split('-')[1]));
+                                 else if (t.id.startsWith('phase')) handleSelectItem('PHASE', `${selectedProjectId}-${t.name}`);
+                                 else handleSelectItem('TASK', parseInt(t.id));
+                               }} 
+                             />
+                           </div>
+                        ) : <div className="h-full flex items-center justify-center text-gray-300 font-black text-[10px] uppercase italic">Select project to view Gantt</div>}
+                     </div>
+                   )}
                 </div>
-              </div>
+             </div>
           </div>
         </div>
+      </div>
 
-        {/* Modals placeholders */}
-        {isCreateTaskModalOpen && (
-           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden p-8 space-y-6">
-                 <h3 className="text-[14px] font-black text-indigo-900 border-b pb-4 uppercase tracking-widest">Add WBS Task</h3>
-                 <div className="space-y-4">
-                    <input type="text" placeholder="Task title..." value={newTask.title} onChange={e => setNewTask(p => ({ ...p, title: e.target.value }))} className="w-full px-4 py-2 bg-gray-50 rounded-xl font-bold border-2 border-transparent focus:border-indigo-500 outline-none text-[12px]" />
-                    <div className="grid grid-cols-2 gap-4">
-                       <Select options={projects.map(p => ({ value: p.id, label: p.name }))} value={projects.map(p => ({ value: p.id, label: p.name })).find(o => o.value === newTask.projectId)} onChange={o => setNewTask(p => ({ ...p, projectId: o?.value || null }))} placeholder="PJ" />
-                       <Select options={modalGates.map(g => ({ value: g.phaseName, label: g.phaseName }))} value={{ value: newTask.phase, label: newTask.phase }} onChange={o => setNewTask(p => ({ ...p, phase: o?.value || '' }))} placeholder="PHASE" isDisabled={!newTask.projectId} />
-                    </div>
-                    <Select options={modalMembers.map(m => ({ value: m.userId, label: users.find(u => u.id === m.userId)?.name || '' }))} onChange={o => setNewTask(p => ({ ...p, assigneeId: o?.value || null }))} placeholder="ASSIGN" isDisabled={!newTask.projectId} />
-                    <div className="grid grid-cols-2 gap-4">
-                       <div>
-                          <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Schedule Start <span className="text-red-500">*</span></label>
-                          <input required type="date" value={newTask.plannedStartDate} onChange={e => setNewTask(p => ({ ...p, plannedStartDate: e.target.value }))} className="w-full px-3 py-2 bg-gray-50 rounded-xl border-2 border-transparent focus:border-indigo-500 outline-none text-[11px] font-bold" />
-                       </div>
-                       <div>
-                          <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Schedule End <span className="text-red-500">*</span></label>
-                          <input required type="date" value={newTask.plannedEndDate} onChange={e => setNewTask(p => ({ ...p, plannedEndDate: e.target.value }))} className="w-full px-3 py-2 bg-gray-50 rounded-xl border-2 border-transparent focus:border-indigo-500 outline-none text-[11px] font-bold" />
-                       </div>
-                    </div>
-                 </div>
-                 <div className="flex justify-end gap-3 pt-4">
-                    <button onClick={() => setIsCreateTaskModalOpen(false)} className="px-6 py-2 rounded-xl text-[11px] font-black text-gray-400">CANCEL</button>
-                    <button
-                      onClick={handleCreateTask}
-                      disabled={!newTask.title.trim() || !newTask.projectId || !newTask.plannedStartDate || !newTask.plannedEndDate}
-                      className="px-6 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black shadow-lg disabled:opacity-40 disabled:pointer-events-none"
-                    >CREATE</button>
-                 </div>
+      {isCreateTaskModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl p-8 space-y-6">
+            <h3 className="text-[14px] font-black text-indigo-900 border-b pb-4 uppercase tracking-widest">Add Task</h3>
+            <div className="space-y-4">
+              <input type="text" placeholder="Title..." value={newTask.title} onChange={e => setNewTask(p => ({ ...p, title: e.target.value }))} className="w-full px-4 py-2 bg-gray-50 rounded-xl font-bold border-2 border-transparent focus:border-indigo-500 outline-none text-[12px]" />
+              <div className="grid grid-cols-2 gap-4">
+                <Select options={projects.map(p => ({ value: p.id, label: p.name }))} value={projects.map(p => ({ value: p.id, label: p.name })).find(o => o.value === newTask.projectId)} onChange={o => setNewTask(p => ({ ...p, projectId: o?.value || null }))} placeholder="PJ" />
+                <Select options={modalGates.map(g => ({ value: g.phaseName, label: g.phaseName }))} value={{ value: newTask.phase, label: newTask.phase }} onChange={o => setNewTask(p => ({ ...p, phase: o?.value || '' }))} placeholder="PHASE" isDisabled={!newTask.projectId} />
               </div>
-           </div>
-        )}
-
-        {isCreateProjectModalOpen && (
-           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden p-8 space-y-6">
-                 <h3 className="text-[14px] font-black text-indigo-900 border-b pb-4 uppercase tracking-widest">Edit Project</h3>
-                 <input type="text" placeholder="PJ Name..." value={newProject.name} onChange={e => setNewProject(p => ({ ...p, name: e.target.value }))} className="w-full px-4 py-2 bg-gray-50 rounded-xl font-bold border-2 border-transparent focus:border-indigo-500 outline-none text-[12px]" />
-                 <div className="flex justify-end gap-3 pt-4">
-                    <button onClick={() => setIsCreateProjectModalOpen(false)} className="px-6 py-2 rounded-xl text-[11px] font-black text-gray-400">CANCEL</button>
-                    <button onClick={handleCreateProject} className="px-6 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black shadow-lg uppercase">Save</button>
-                 </div>
-              </div>
-           </div>
-        )}
-
-        {/* Reschedule Modal */}
-        {isRescheduleModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8 space-y-6">
-              <div className="flex items-center gap-3 border-b pb-4">
-                <CalendarClock className="w-5 h-5 text-amber-500" />
-                <h3 className="text-[14px] font-black text-slate-900 uppercase tracking-widest">Project Reschedule</h3>
-              </div>
-              <p className="text-[11px] text-gray-500">Set a new anchor date. All tasks will shift proportionally while preserving working-day durations.</p>
-              <div className="flex gap-2 bg-gray-50 p-1 rounded-xl">
-                <button onClick={() => { setRescheduleMode('start'); setRescheduleDate(currentProject?.plannedStartDate?.split('T')[0] || ''); }}
-                  className={`flex-1 py-2 rounded-lg text-[11px] font-black transition-all ${rescheduleMode === 'start' ? 'bg-white shadow text-amber-600' : 'text-gray-400'}`}>
-                  By Start Date
-                </button>
-                <button onClick={() => { setRescheduleMode('end'); setRescheduleDate(currentProject?.plannedEndDate?.split('T')[0] || ''); }}
-                  className={`flex-1 py-2 rounded-lg text-[11px] font-black transition-all ${rescheduleMode === 'end' ? 'bg-white shadow text-amber-600' : 'text-gray-400'}`}>
-                  By End Date
-                </button>
-              </div>
-              <div className="space-y-2">
-                <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest">
-                  New {rescheduleMode === 'start' ? 'Project Start' : 'Project End'} Date
-                </label>
-                <input type="date" value={rescheduleDate} onChange={e => setRescheduleDate(e.target.value)}
-                  className="w-full px-4 py-3 bg-amber-50 border-2 border-amber-200 focus:border-amber-500 rounded-xl outline-none text-[13px] font-black" />
-                <div className="text-[10px] text-gray-400">
-                  Current: {rescheduleMode === 'start'
-                    ? (currentProject?.plannedStartDate?.split('T')[0] || 'N/A')
-                    : (currentProject?.plannedEndDate?.split('T')[0] || 'N/A')}
-                </div>
-              </div>
-              <div className="flex justify-end gap-3 pt-2">
-                <button onClick={() => setIsRescheduleModalOpen(false)} className="px-6 py-2 rounded-xl text-[11px] font-black text-gray-400 hover:bg-gray-50">CANCEL</button>
-                <button onClick={handleReschedule} disabled={!rescheduleDate}
-                  className="px-6 py-2 bg-amber-500 text-white rounded-xl text-[11px] font-black shadow-lg hover:bg-amber-600 disabled:opacity-40">
-                  APPLY RESCHEDULE
-                </button>
+              <div className="grid grid-cols-2 gap-2">
+                <input type="date" value={newTask.plannedStartDate} onChange={e => setNewTask(p => ({ ...p, plannedStartDate: e.target.value }))} className="w-full px-3 py-2 bg-gray-50 rounded-lg text-[11px] font-bold" />
+                <input type="date" value={newTask.plannedEndDate} onChange={e => setNewTask(p => ({ ...p, plannedEndDate: e.target.value }))} className="w-full px-3 py-2 bg-gray-50 rounded-lg text-[11px] font-bold" />
               </div>
             </div>
+            <div className="flex justify-end gap-3"><button onClick={() => setIsCreateTaskModalOpen(false)} className="px-6 py-2 text-[11px] font-black text-gray-400">CANCEL</button><button onClick={handleCreateTask} className="px-6 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black shadow-lg">CREATE</button></div>
           </div>
-        )}
+        </div>
+      )}
 
-        <ProjectSelectorModal 
-          isOpen={isProjectModalOpen}
-          onClose={() => setIsProjectModalOpen(false)}
-          projects={projects}
-          onSelect={(id) => {
-            setSelectedProjectId(id);
-            fetchProjectDetails(id);
-            sessionStorage.setItem('dashboard_selectedProjectId', String(id));
-          }}
-          currentProjectId={selectedProjectId}
-        />
-
-        {currentProject && (
-          <ImportModal
-            isOpen={isImportModalOpen}
-            onClose={() => setIsImportModalOpen(false)}
-            projectId={currentProject.id}
-            projectName={currentProject.name}
-            onImportSuccess={() => {
-              fetchProjectDetails(currentProject.id);
-              setIsImportModalOpen(false);
-            }}
-          />
-        )}
-      </div>
+      <ProjectSelectorModal isOpen={isProjectModalOpen} onClose={() => setIsProjectModalOpen(false)} projects={projects} onSelect={(id) => { setSelectedProjectId(id); fetchProjectDetails(id); sessionStorage.setItem('dashboard_selectedProjectId', String(id)); }} currentProjectId={selectedProjectId} />
+      {currentProject && <ImportModal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} projectId={currentProject.id} projectName={currentProject.name} onImportSuccess={() => fetchProjectDetails(currentProject.id)} />}
+      {isRescheduleModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8 space-y-6">
+            <h3 className="text-[14px] font-black text-slate-900 uppercase tracking-widest border-b pb-4">Reschedule</h3>
+            <div className="flex gap-2 bg-gray-50 p-1 rounded-xl">
+              <button onClick={() => setRescheduleMode('start')} className={`flex-1 py-2 rounded-lg text-[11px] font-black ${rescheduleMode === 'start' ? 'bg-white shadow text-amber-600' : 'text-gray-400'}`}>Start</button>
+              <button onClick={() => setRescheduleMode('end')} className={`flex-1 py-2 rounded-lg text-[11px] font-black ${rescheduleMode === 'end' ? 'bg-white shadow text-amber-600' : 'text-gray-400'}`}>End</button>
+            </div>
+            <input type="date" value={rescheduleDate} onChange={e => setRescheduleDate(e.target.value)} className="w-full px-4 py-3 bg-amber-50 rounded-xl font-black text-[13px]" />
+            <div className="flex justify-end gap-3"><button onClick={() => setIsRescheduleModalOpen(false)} className="px-6 py-2 text-[11px] font-black text-gray-400">CANCEL</button><button onClick={handleReschedule} className="px-6 py-2 bg-amber-500 text-white rounded-xl text-[11px] font-black shadow-lg">APPLY</button></div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

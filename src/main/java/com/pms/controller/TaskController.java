@@ -111,6 +111,23 @@ public class TaskController {
                     }
                 }
             }
+            if (fields.containsKey("ownerId")) {
+                Object oid = fields.get("ownerId");
+                if (oid == null) {
+                    task.setOwnerId(null);
+                } else if (oid instanceof Number) {
+                    task.setOwnerId(((Number) oid).longValue());
+                } else {
+                    try {
+                        task.setOwnerId(Long.parseLong(oid.toString()));
+                    } catch (NumberFormatException e) {
+                        task.setOwnerId(null);
+                    }
+                }
+            }
+            if (fields.containsKey("responsibleRoles")) {
+                task.setResponsibleRoles((String) fields.get("responsibleRoles"));
+            }
             if (fields.containsKey("plannedStartDate")) {
                 task.setPlannedStartDate((String) fields.get("plannedStartDate"));
             }

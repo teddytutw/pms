@@ -69,17 +69,34 @@ public class AttachmentController {
         String originalFileName = file.getOriginalFilename();
         if (originalFileName == null) originalFileName = "unknown";
         
-        // 為了避免檔名衝突，產生存檔的唯一名稱
+        // 取得今日日期作為子目錄與檔名前綴
+        java.time.LocalDate now = java.time.LocalDate.now();
+        String datePath = now.format(java.time.format.DateTimeFormatter.ofPattern("yyyy/MM/dd"));
+        String datePrefix = now.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd"));
+
+        // 建立日期子目錄
+        Path subDir = this.fileStorageLocation.resolve(datePath);
+        try {
+            Files.createDirectories(subDir);
+        } catch (IOException e) {
+            return ResponseEntity.internalServerError().body("無法建立日期子目錄: " + e.getMessage());
+        }
+
+        // 為了避免檔名衝突，產生存檔的唯一名稱，並加上日期前綴
         String extension = "";
         int dotIndex = originalFileName.lastIndexOf('.');
         if (dotIndex >= 0) {
             extension = originalFileName.substring(dotIndex);
         }
-        String storedFileName = UUID.randomUUID().toString() + extension;
+        String uuidName = UUID.randomUUID().toString() + extension;
+        String storedFileName = datePrefix + "_" + uuidName;
+        
+        // 為了讓 Resolve 能找到子目錄下的檔案，metadata 儲存路徑為 "yyyy/MM/dd/storedFileName"
+        String relativeFileName = datePath + "/" + storedFileName;
 
         try {
             // 將檔案存入實體硬碟
-            Path targetLocation = this.fileStorageLocation.resolve(storedFileName);
+            Path targetLocation = this.fileStorageLocation.resolve(relativeFileName);
             Files.copy(file.getInputStream(), targetLocation, StandardCopyOption.REPLACE_EXISTING);
 
             // 儲存 Metadata 進入資料庫
@@ -87,7 +104,8 @@ public class AttachmentController {
             attachment.setTargetType(targetType);
             attachment.setTargetId(targetId);
             attachment.setOriginalFileName(originalFileName);
-            attachment.setFileName(storedFileName);
+            // 存入帶有子目錄的路徑，方便 downloadAttachment 查找
+            attachment.setFileName(relativeFileName);
             attachment.setFileType(file.getContentType());
             attachment.setFileSize(file.getSize());
             attachment.setFilePath(targetLocation.toString());
