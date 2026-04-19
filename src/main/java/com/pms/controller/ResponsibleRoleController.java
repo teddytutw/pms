@@ -23,13 +23,11 @@ public class ResponsibleRoleController {
 
     @PostMapping
     public ResponsibleRole create(@RequestBody ResponsibleRole role) {
-        @SuppressWarnings("null")
-        ResponsibleRole savedRole = repository.save(role);
-        return savedRole;
+        return repository.save(role);
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<?> delete(@PathVariable long id) {
+    public ResponseEntity<?> delete(@PathVariable Long id) {
         return repository.findById(id).map(role -> {
             repository.delete(role);
             return ResponseEntity.ok().build();
