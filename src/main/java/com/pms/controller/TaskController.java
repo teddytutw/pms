@@ -1,7 +1,9 @@
 package com.pms.controller;
 
 import com.pms.entity.Task;
+import com.pms.entity.ProjectPhaseGate;
 import com.pms.repository.TaskRepository;
+import com.pms.repository.ProjectPhaseGateRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -9,6 +11,7 @@ import org.springframework.web.bind.annotation.*;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/tasks")
@@ -150,6 +153,95 @@ public class TaskController {
                 taskRepository.delete(task);
             }
             return ResponseEntity.ok().build();
+        }).orElse(ResponseEntity.notFound().build());
+    }
+
+    @Autowired
+    private ProjectPhaseGateRepository phaseRepository;
+
+    @PostMapping("/{id}/adjust")
+    public ResponseEntity<Task> adjustTask(@PathVariable long id, @RequestParam String direction) {
+        return taskRepository.findById(id).map(task -> {
+            String currentPhase = (task.getPhase() == null || task.getPhase().trim().isEmpty()) ? "" : task.getPhase().trim();
+            Long projectId = task.getProjectId();
+            
+            List<Task> siblings = taskRepository.findByProjectIdOrderByDisplayOrderAsc(projectId).stream()
+                .filter(t -> {
+                    String p = (t.getPhase() == null || t.getPhase().trim().isEmpty()) ? "" : t.getPhase().trim();
+                    return p.equals(currentPhase);
+                })
+                .sorted((a, b) -> {
+                    int orderA = a.getDisplayOrder() != null ? a.getDisplayOrder() : 0;
+                    int orderB = b.getDisplayOrder() != null ? b.getDisplayOrder() : 0;
+                    if (orderA != orderB) return Integer.compare(orderA, orderB);
+                    return Long.compare(a.getId(), b.getId());
+                })
+                .collect(Collectors.toList());
+
+            int idx = siblings.indexOf(task);
+            if (idx == -1) return ResponseEntity.ok(task);
+
+            // 1. Indent / Outdent
+            if ("indent".equals(direction)) {
+                if (idx > 0) {
+                    Task prev = siblings.get(idx - 1);
+                    task.setParentTaskId(prev.getId());
+                    taskRepository.saveAndFlush(task);
+                }
+                return ResponseEntity.ok(task);
+            } else if ("outdent".equals(direction)) {
+                if (task.getParentTaskId() != null) {
+                    task.setParentTaskId(null);
+                    taskRepository.saveAndFlush(task);
+                } else if (!currentPhase.isEmpty()) {
+                    // Outdenting a root-level phase task -> Move to Common Tasks
+                    task.setPhase("");
+                    task.setDisplayOrder(999);
+                    taskRepository.saveAndFlush(task);
+                }
+                return ResponseEntity.ok(task);
+            }
+
+            // 2. Up / Down (Cross-Phase support)
+            List<ProjectPhaseGate> phases = phaseRepository.findByProjectIdOrderByDisplayOrderAsc(projectId);
+            List<String> phaseNames = phases.stream().map(p -> p.getPhaseName()).collect(Collectors.toList());
+            phaseNames.add(""); // Common Tasks at the end
+
+            int phaseIdx = phaseNames.indexOf(currentPhase);
+
+            if ("up".equals(direction)) {
+                if (idx > 0) {
+                    // Normal swap up
+                    Task prev = siblings.get(idx - 1);
+                    siblings.set(idx - 1, task);
+                    siblings.set(idx, prev);
+                    for (int i = 0; i < siblings.size(); i++) siblings.get(i).setDisplayOrder(i + 1);
+                    taskRepository.saveAll(siblings);
+                } else if (phaseIdx > 0) {
+                    // Jump to previous phase
+                    task.setPhase(phaseNames.get(phaseIdx - 1));
+                    task.setParentTaskId(null);
+                    task.setDisplayOrder(999); // Will be at end of prev phase
+                    taskRepository.saveAndFlush(task);
+                }
+            } else if ("down".equals(direction)) {
+                if (idx < siblings.size() - 1) {
+                    // Normal swap down
+                    Task next = siblings.get(idx + 1);
+                    siblings.set(idx + 1, task);
+                    siblings.set(idx, next);
+                    for (int i = 0; i < siblings.size(); i++) siblings.get(i).setDisplayOrder(i + 1);
+                    taskRepository.saveAll(siblings);
+                } else if (phaseIdx < phaseNames.size() - 1) {
+                    // Jump to next phase
+                    task.setPhase(phaseNames.get(phaseIdx + 1));
+                    task.setParentTaskId(null);
+                    task.setDisplayOrder(0); // Will be at start of next phase
+                    taskRepository.saveAndFlush(task);
+                }
+            }
+
+            return ResponseEntity.ok(task);
         }).orElse(ResponseEntity.notFound().build());
     }
 }

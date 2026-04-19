@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import {
   FolderOpen, Layers, CheckSquare2, ShieldCheck, ChevronDown, ChevronRight,
-  GripVertical, Clock, Circle, CheckCircle, AlertCircle, Check, X
+  GripVertical, Check, X
 } from 'lucide-react';
 
 // ──────────────────────────────────────────
@@ -63,19 +63,11 @@ interface WBSViewProps {
   onUpdateTask?: (taskId: number, updates: Partial<WBSTask>) => Promise<void>;
   onUpdatePhase?: (phaseId: number, updates: Partial<WBSGate>) => Promise<void>;
   onAdjustTask?: (action: 'indent' | 'outdent' | 'up' | 'down') => Promise<void>;
+  onDeleteTask?: (taskId: number) => void;
   wbsMap: Record<number, string>;
-  criticalPathIds?: Set<string>;
 }
 
-const formatDate = (dateStr?: string) => {
-  if (!dateStr) return '-';
-  const date = new Date(dateStr);
-  if (isNaN(date.getTime())) return '-';
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  const y = date.getFullYear();
-  return `${m}/${d}/${y}`;
-};
+
 
 const calcWorkingDays = (start?: string, end?: string): number => {
   if (!start || !end) return 0;
@@ -99,12 +91,7 @@ const nodeConfig = {
   gate:    { Icon: ShieldCheck,   bg: 'bg-amber-100',  badge: 'bg-amber-100 text-amber-700',      label: 'GATE'    },
 };
 
-const statusConfig: Record<string, { color: string; Icon: any }> = {
-  'DONE': { color: 'text-green-600 bg-green-50', Icon: CheckCircle },
-  'PROG': { color: 'text-blue-600 bg-blue-50',   Icon: Clock       },
-  'TODO': { color: 'text-gray-400 bg-gray-50',   Icon: Circle      },
-  'OVR':  { color: 'text-red-600  bg-red-50',    Icon: AlertCircle },
-};
+
 
 const gateStatusConfig: Record<string, { color: string; label: string }> = {
   APPROVED: { color: 'bg-green-100 text-green-700 border-green-200', label: '✓'  },
@@ -165,236 +152,6 @@ function NodeTypeTag({ type }: { type: keyof typeof nodeConfig }) {
 
 
 // ──────────────────────────────────────────
-//  Inline Task Detail Panel
-// ──────────────────────────────────────────
-function TaskDetailPanel({
-  task,
-  users,
-  project,
-  wbsMap,
-  criticalPathIds,
-  onUpdateTask,
-  onClose,
-}: {
-  task: WBSTask;
-  users: WBSUser[];
-  project: WBSProject;
-  wbsMap: Record<number, string>;
-  criticalPathIds?: Set<string>;
-  onUpdateTask?: (taskId: number, updates: Partial<WBSTask>) => Promise<void>;
-  onClose: () => void;
-}) {
-  const [titleVal, setTitleVal]   = useState(task.title);
-  const [predVal,  setPredVal]    = useState('');
-
-  // Sync title when task changes
-  useEffect(() => { setTitleVal(task.title); }, [task.id, task.title]);
-
-  // Convert stored T-prefixed preds → WBS codes for display
-  useEffect(() => {
-    let d = task.predecessors || '';
-    (d.match(/T\d+/g) || []).forEach(m => {
-      const tid = Number(m.substring(1));
-      if (wbsMap[tid]) d = d.replace(m, wbsMap[tid]);
-    });
-    setPredVal(d);
-  }, [task.id, task.predecessors, wbsMap]);
-
-  const savePreds = async () => {
-    const parts = predVal.split(/[,;]/).map(p => p.trim()).filter(Boolean);
-    const parsed = parts.map(part => {
-      const match = part.match(/^([\d.]+)(.*)/);
-      if (match) {
-        const tid = Object.keys(wbsMap).find(k => wbsMap[Number(k)] === match[1]);
-        if (tid) return `T${tid}${match[2]}`;
-      }
-      return part;
-    }).join(', ');
-    await onUpdateTask?.(task.id, { predecessors: parsed });
-  };
-
-  const roles = project.responsibleRoles?.split(',').map(r => r.trim()).filter(Boolean) || [];
-  const isCritical = criticalPathIds?.has(String(task.id));
-  const plDur  = calcWorkingDays(task.plannedStartDate, task.plannedEndDate);
-  const actDur = calcWorkingDays(task.actualStartDate,  task.actualEndDate);
-
-  const fieldLabel = (text: string) => (
-    <label className="block text-[8px] font-black text-gray-400 uppercase tracking-widest mb-1">{text}</label>
-  );
-  const inputCls = "w-full px-2 py-1.5 bg-white border border-gray-200 rounded-lg text-[10px] font-bold outline-none focus:border-indigo-400 transition-colors";
-  const selectCls = "w-full px-2 py-1.5 bg-white border border-gray-200 rounded-lg text-[10px] font-bold outline-none focus:border-indigo-400 transition-colors";
-
-  return (
-    <div
-      className="border-l-2 border-indigo-400 bg-gradient-to-br from-indigo-50/50 via-white to-slate-50/30 px-5 py-4 shadow-inner"
-      onClick={e => e.stopPropagation()}
-    >
-      {/* Header row: badges + close */}
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          {wbsMap[task.id] && (
-            <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-[8px] font-black rounded-md">
-              WBS {wbsMap[task.id]}
-            </span>
-          )}
-          {isCritical && (
-            <span className="px-2 py-0.5 bg-red-50 text-red-700 text-[8px] font-black rounded-md border border-red-200">
-              ⚠ CRITICAL PATH
-            </span>
-          )}
-        </div>
-        <button
-          onClick={onClose}
-          className="p-1 rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
-        >
-          <X className="w-3 h-3" />
-        </button>
-      </div>
-
-      <div className="grid grid-cols-4 gap-x-3 gap-y-3">
-        {/* Activity Name ── col 4 */}
-        <div className="col-span-4">
-          {fieldLabel('Activity Name')}
-          <input
-            type="text"
-            value={titleVal}
-            onChange={e => setTitleVal(e.target.value)}
-            onBlur={e => { if (e.target.value.trim() && e.target.value !== task.title) onUpdateTask?.(task.id, { title: e.target.value.trim() }); }}
-            className={inputCls}
-          />
-        </div>
-
-        {/* Status ── col 1 */}
-        <div>
-          {fieldLabel('Status')}
-          <select
-            value={task.status || 'TODO'}
-            onChange={e => onUpdateTask?.(task.id, { status: e.target.value })}
-            className={selectCls}
-          >
-            {['TODO', 'PROG', 'DONE', 'OVR'].map(s => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
-        </div>
-
-        {/* Owner ── col 1 */}
-        <div>
-          {fieldLabel('Owner')}
-          <select
-            value={task.assigneeId || ''}
-            onChange={e => onUpdateTask?.(task.id, { assigneeId: e.target.value ? Number(e.target.value) : undefined })}
-            className={selectCls}
-          >
-            <option value="">-</option>
-            {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-          </select>
-        </div>
-
-        {/* Responsible Role ── col 2 */}
-        <div className="col-span-2">
-          {fieldLabel('Responsible Role')}
-          <select
-            value={task.responsibleRoles || ''}
-            onChange={e => onUpdateTask?.(task.id, { responsibleRoles: e.target.value })}
-            className={selectCls}
-          >
-            <option value="">- Role -</option>
-            {roles.map(role => <option key={role} value={role}>{role}</option>)}
-          </select>
-        </div>
-
-        {/* PL Start ── col 1 */}
-        <div>
-          {fieldLabel('PL Start')}
-          <input
-            type="date"
-            value={task.plannedStartDate?.split('T')[0] || ''}
-            onChange={e => onUpdateTask?.(task.id, { plannedStartDate: e.target.value })}
-            className={inputCls}
-          />
-        </div>
-
-        {/* PL End ── col 1 */}
-        <div>
-          {fieldLabel('PL End')}
-          <input
-            type="date"
-            value={task.plannedEndDate?.split('T')[0] || ''}
-            onChange={e => onUpdateTask?.(task.id, { plannedEndDate: e.target.value })}
-            className={inputCls}
-          />
-        </div>
-
-        {/* ACT Start ── col 1 */}
-        <div>
-          {fieldLabel('ACT Start')}
-          <input
-            type="date"
-            value={task.actualStartDate?.split('T')[0] || ''}
-            onChange={e => onUpdateTask?.(task.id, { actualStartDate: e.target.value })}
-            className={inputCls}
-          />
-        </div>
-
-        {/* ACT End ── col 1 */}
-        <div>
-          {fieldLabel('ACT End')}
-          <input
-            type="date"
-            value={task.actualEndDate?.split('T')[0] || ''}
-            onChange={e => onUpdateTask?.(task.id, { actualEndDate: e.target.value })}
-            className={inputCls}
-          />
-        </div>
-
-        {/* Duration summary ── col 4 */}
-        <div className="col-span-4 flex items-center gap-6 px-1 py-1 bg-white/60 rounded-lg border border-gray-100">
-          <div className="flex items-center gap-1.5">
-            <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest">PL DUR</span>
-            <span className={`text-[11px] font-black ${plDur > 0 ? 'text-indigo-600' : 'text-gray-300'}`}>
-              {plDur > 0 ? `${plDur}d` : '-'}
-            </span>
-          </div>
-          <div className="w-px h-3 bg-gray-200" />
-          <div className="flex items-center gap-1.5">
-            <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest">ACT DUR</span>
-            <span className={`text-[11px] font-black ${actDur > 0 ? 'text-green-600' : 'text-gray-300'}`}>
-              {actDur > 0 ? `${actDur}d` : '-'}
-            </span>
-          </div>
-          {plDur > 0 && actDur > 0 && (
-            <>
-              <div className="w-px h-3 bg-gray-200" />
-              <div className="flex items-center gap-1.5">
-                <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest">VARIANCE</span>
-                <span className={`text-[11px] font-black ${actDur > plDur ? 'text-red-500' : 'text-green-600'}`}>
-                  {actDur > plDur ? `+${actDur - plDur}d` : actDur < plDur ? `-${plDur - actDur}d` : '0d'}
-                </span>
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Predecessors ── col 4 */}
-        <div className="col-span-4">
-          {fieldLabel('Predecessors (WBS codes e.g. 1.1, 1.2)')}
-          <input
-            type="text"
-            value={predVal}
-            onChange={e => setPredVal(e.target.value)}
-            onBlur={savePreds}
-            onKeyDown={e => { if (e.key === 'Enter') savePreds(); }}
-            placeholder="e.g. 1.1, 2.3"
-            className={inputCls}
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ──────────────────────────────────────────
 //  Main WBSView
 // ──────────────────────────────────────────
 export default function WBSView({
@@ -411,8 +168,8 @@ export default function WBSView({
   onUpdateTask,
   onUpdatePhase,
   onAdjustTask,
+  onDeleteTask,
   wbsMap,
-  criticalPathIds,
 }: WBSViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [expandedPhases,    setExpandedPhases]    = useState<Record<string, boolean>>({});
@@ -431,7 +188,8 @@ export default function WBSView({
     let level = 0;
     let curr = task;
     while (curr.parentTaskId) {
-      const parent = tasks.find(t => t.id === curr.parentTaskId);
+      // Use == for loose equality with parentTaskId
+      const parent = tasks.find(t => t.id == curr.parentTaskId);
       if (!parent || level > 5) break;
       curr = parent;
       level++;
@@ -470,20 +228,24 @@ export default function WBSView({
 
   return (
     <DragDropContext onDragEnd={handleDragEnd}>
-      <div ref={containerRef} className="font-sans text-[11px] select-none outline-none" tabIndex={0} onKeyDown={handleKeyboardAdjustment}>
+      <div ref={containerRef} className="font-sans text-[11px] select-none outline-none overflow-x-auto min-w-full" tabIndex={0} onKeyDown={handleKeyboardAdjustment}>
         {/* Header */}
-        <div className="flex items-center px-4 py-1.5 bg-gray-50 border-b border-gray-100 font-black text-gray-400 uppercase tracking-widest text-[8px] sticky top-0 z-10">
+        <div className="flex items-center px-4 py-1.5 bg-gray-50 border-b border-gray-100 font-black text-gray-400 uppercase tracking-widest text-[8px] sticky top-0 z-10 w-max min-w-full">
           <div className="w-14 shrink-0">WBS</div>
-          <div className="flex-1 min-w-[150px]">Activity Name</div>
-          <div className="w-16 shrink-0 text-center">Status</div>
-          <div className="w-20 shrink-0 text-center">Role</div>
-          <div className="w-20 shrink-0 text-center">Owner</div>
-          <div className="w-32 shrink-0 text-right">Schedule</div>
-          <div className="w-14 shrink-0 text-right">DUR(d)</div>
-          <div className="w-24 shrink-0 text-right">Predecessors</div>
+          <div className="w-[180px] shrink-0">Activity Name</div>
+          <div className="w-20 shrink-0 text-center">Status</div>
+          <div className="w-24 shrink-0 text-center">Role</div>
+          <div className="w-24 shrink-0 text-center">Owner</div>
+          <div className="w-24 shrink-0 px-2">PL Start</div>
+          <div className="w-24 shrink-0 px-2">PL End</div>
+          <div className="w-24 shrink-0 px-2">ACT Start</div>
+          <div className="w-24 shrink-0 px-2">ACT End</div>
+          <div className="w-10 shrink-0 text-right">DUR</div>
+          <div className="w-24 shrink-0 px-2">Predecessors</div>
+          <div className="w-10 shrink-0 text-center">Del</div>
         </div>
 
-        <div className="min-w-fit">
+        <div className="w-max min-w-full">
           {(visibleProjects || []).map(project => {
             const projectTasks = (tasks || []).filter(t => t.projectId == project.id);
             const projectGates = (gates || []).filter(g => g.projectId == project.id);
@@ -497,10 +259,12 @@ export default function WBSView({
             return (
               <div key={project.id} className="border-b border-gray-100">
                 <div className="flex items-center px-4 py-1.5 hover:bg-gray-50 bg-white group border-l-4 border-l-indigo-600">
-                  <button onClick={() => setExpandedProjects(p => ({ ...p, [project.id]: !isExpanded }))} className="w-14 shrink-0 text-gray-400 hover:text-indigo-600 flex justify-center">
-                    {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                  </button>
-                  <div className="flex-1 min-w-[150px] flex items-center gap-2 overflow-hidden">
+                  <div className="w-14 shrink-0 flex items-center pr-2">
+                    <button onClick={() => setExpandedProjects(p => ({ ...p, [project.id]: !isExpanded }))} className="text-gray-400 hover:text-indigo-600 w-full flex justify-center">
+                      {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  <div className="w-[180px] shrink-0 flex items-center gap-2 overflow-hidden pr-2">
                     <FolderOpen className="w-3 h-3 text-indigo-600 shrink-0" />
                     {editingKey === editKey ? (
                       <InlineEdit value={project.name} onSave={val => { onRenameProject?.(project.id, val); setEditingKey(null); }} onCancel={() => setEditingKey(null)} />
@@ -508,15 +272,18 @@ export default function WBSView({
                       <span className="font-black text-indigo-900 truncate" onDoubleClick={() => setEditingKey(editKey)}>{project.name}</span>
                     )}
                   </div>
-                  <div className="w-16 shrink-0 flex justify-center"><StatusIndicator status={project.statusIndicator} /></div>
-                  <div className="w-20 shrink-0 flex flex-wrap gap-0.5 justify-center overflow-hidden h-6 items-center">
+                  <div className="w-20 shrink-0 flex justify-center"><StatusIndicator status={project.statusIndicator} /></div>
+                  <div className="w-24 shrink-0 flex flex-wrap gap-0.5 justify-center overflow-hidden h-6 items-center px-1">
                     {project.responsibleRoles?.split(',').map(r => r.trim()).filter(Boolean).map(role => (
-                      <span key={role} className="text-[7px] bg-indigo-50 text-indigo-600 px-1 rounded-sm border border-indigo-100 uppercase font-black">{role}</span>
+                      <span key={role} className="text-[7px] bg-indigo-50 text-indigo-600 px-1 rounded-sm border border-indigo-100 uppercase font-black truncate">{role}</span>
                     ))}
                   </div>
-                  <div className="w-20 shrink-0"></div>
-                  <div className="w-32 shrink-0 text-right"><NodeTypeTag type="project" /></div>
-                  <div className="w-14 shrink-0 text-right text-[9px] font-black text-indigo-600 pr-1">
+                  <div className="w-24 shrink-0 px-1"></div>
+                  <div className="w-24 shrink-0 px-2 text-right"><NodeTypeTag type="project" /></div>
+                  <div className="w-24 shrink-0 px-2"></div>
+                  <div className="w-24 shrink-0 px-2"></div>
+                  <div className="w-24 shrink-0 px-2"></div>
+                  <div className="w-10 shrink-0 text-right pr-1 text-[9px] font-black text-indigo-600">
                     {(() => {
                       if (!projectTasks.length) return '-';
                       const tds = projectTasks.filter(t => t.plannedStartDate && t.plannedEndDate);
@@ -527,7 +294,8 @@ export default function WBSView({
                       return d > 0 ? `${d}d` : '-';
                     })()}
                   </div>
-                  <div className="w-24 shrink-0"></div>
+                  <div className="w-24 shrink-0 px-2"></div>
+                  <div className="w-10 shrink-0 text-center"></div>
                 </div>
 
                 {isExpanded && (
@@ -546,21 +314,21 @@ export default function WBSView({
                               {(dragProvided, dragSnapshot) => (
                                 <div ref={dragProvided.innerRef} {...dragProvided.draggableProps}>
                                   <div className={`flex items-center px-4 py-1 hover:bg-gray-50 bg-gray-50/20 group border-b border-gray-50 ${dragSnapshot.isDragging ? 'opacity-50' : ''}`}>
-                                    <div className="w-14 shrink-0 flex items-center pl-1">
+                                    <div className="w-14 shrink-0 flex items-center pr-2 text-center" style={{ paddingLeft: '16px' }}>
                                       <div {...dragProvided.dragHandleProps} className="opacity-0 group-hover:opacity-100 text-gray-300 w-4">
                                         <GripVertical className="w-3 h-3" />
                                       </div>
-                                      <button onClick={() => setExpandedPhases(p => ({ ...p, [phase]: !phaseExpanded }))} className="text-gray-400 w-6">
+                                      <button onClick={() => setExpandedPhases(p => ({ ...p, [phase]: !phaseExpanded }))} className="text-gray-400 w-4 pl-1">
                                         {phaseExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
                                       </button>
                                       <div className="text-[9px] font-black text-gray-500 w-full text-center">{phaseIdx + 1}</div>
                                     </div>
-                                    <div className="flex-1 min-w-[150px] flex items-center gap-2 overflow-hidden font-bold text-gray-700">
+                                    <div className="w-[180px] shrink-0 flex items-center gap-2 pr-2 overflow-hidden font-bold text-gray-700">
                                        <Layers className="w-3 h-3 text-violet-600 shrink-0" />
                                        <span className="truncate">{phase}</span>
                                     </div>
-                                    <div className="w-16 shrink-0 flex justify-center"><StatusIndicator status={gate.statusIndicator} /></div>
-                                    <div className="w-20 shrink-0 px-1">
+                                    <div className="w-20 shrink-0 flex justify-center"><StatusIndicator status={gate.statusIndicator} /></div>
+                                    <div className="w-24 shrink-0 px-1">
                                       <select 
                                         className="w-full bg-white border border-gray-200 rounded text-[9px] font-bold outline-none focus:border-indigo-400 py-0.5"
                                         value={gate.responsibleRoles || ''}
@@ -573,9 +341,12 @@ export default function WBSView({
                                         ))}
                                       </select>
                                     </div>
-                                    <div className="w-20 shrink-0"></div>
-                                    <div className="w-32 shrink-0 text-right"><NodeTypeTag type="phase" /></div>
-                                    <div className="w-14 shrink-0 text-right text-[9px] font-black text-violet-600 pr-1">
+                                    <div className="w-24 shrink-0 px-1"></div>
+                                    <div className="w-24 shrink-0 px-2 text-right"><NodeTypeTag type="phase" /></div>
+                                    <div className="w-24 shrink-0 px-2"></div>
+                                    <div className="w-24 shrink-0 px-2"></div>
+                                    <div className="w-24 shrink-0 px-2"></div>
+                                    <div className="w-10 shrink-0 text-right pr-1 text-[9px] font-black text-violet-600">
                                        {(() => {
                                          const tds = phaseTasks.filter(t => t.plannedStartDate && t.plannedEndDate);
                                          if (!tds.length) return '-';
@@ -585,14 +356,21 @@ export default function WBSView({
                                          return d > 0 ? `${d}d` : '-';
                                        })()}
                                      </div>
-                                     <div className="w-24 shrink-0"></div>
+                                     <div className="w-24 shrink-0 px-2"></div>
+                                     <div className="w-10 shrink-0 text-center"></div>
                                   </div>
 
                                   {phaseExpanded && (
                                     <Droppable droppableId={`phase___${phase}___${project.id}`}>
                                       {(provided, snapshot) => (
                                         <div ref={provided.innerRef} {...provided.droppableProps} className={snapshot.isDraggingOver ? 'bg-indigo-50/20' : ''}>
-                                          {phaseTasks.map((task, idx) => {
+                                          {phaseTasks
+                                            .sort((a, b) => {
+                                              const codeA = wbsMap[a.id] || '';
+                                              const codeB = wbsMap[b.id] || '';
+                                              return codeA.localeCompare(codeB, undefined, { numeric: true });
+                                            })
+                                            .map((task, idx) => {
                                             const status = task.status === '已完成' ? 'DONE' : (task.status === '進行中' ? 'PROG' : (task.status || 'TODO'));
                                             const isSelected = selectedTaskId === task.id;
 
@@ -612,72 +390,122 @@ export default function WBSView({
                                                   <div
                                                     ref={dragProvided.innerRef}
                                                     {...dragProvided.draggableProps}
+                                                    className={`flex items-center px-4 py-1 border-b border-gray-50 cursor-pointer ${
+                                                      isSelected ? 'bg-indigo-50 ring-1 ring-indigo-200 shadow-sm' : 'hover:bg-gray-50 bg-white'
+                                                    } ${dragSnapshot.isDragging ? 'shadow-lg z-50 bg-white !left-0 !top-0' : ''}`}
+                                                    onClick={() => onSelectTask(task.id)}
                                                   >
                                                     {/* ── Task Row ── */}
-                                                    <div
-                                                      onClick={() => onSelectTask(task.id)}
-                                                      className={`flex items-center px-4 py-1 border-b border-gray-50 cursor-pointer ${
-                                                        isSelected ? 'bg-indigo-50 ring-1 ring-indigo-200 shadow-sm' : 'hover:bg-gray-50 bg-white'
-                                                      } ${dragSnapshot.isDragging ? 'shadow-lg z-50 bg-white !left-0 !top-0' : ''}`}
-                                                      style={{ paddingLeft: `${48 + getTaskLevel(task) * 16}px` }}
-                                                    >
-                                                      <div className="w-14 shrink-0 flex items-center pr-2">
-                                                         <div {...dragProvided.dragHandleProps} className="opacity-0 group-hover:opacity-100 text-gray-300 w-4">
-                                                            <GripVertical className="w-3 h-3" />
-                                                         </div>
-                                                         <div className="text-[9px] font-black text-gray-500 w-full text-center">{wbsMap[task.id]}</div>
-                                                      </div>
-                                                      <div className="flex-1 min-w-[150px] flex items-center gap-2 truncate">
-                                                         <div className={`h-1 w-1 rounded-full shrink-0 ${status === 'DONE' ? 'bg-green-500' : (status === 'PROG' ? 'bg-blue-500' : 'bg-gray-300')}`} />
-                                                         <span className="font-medium text-gray-800 truncate">{task.title}</span>
-                                                      </div>
-                                                      <div className="w-16 shrink-0 flex justify-center">
-                                                         <span className={`text-[8px] font-black px-1 py-0.5 rounded-sm uppercase ${(statusConfig[status] || statusConfig['TODO']).color.replace('text-', 'border-').split(' ')[0]} border`}>
-                                                           {status}
-                                                         </span>
-                                                      </div>
-                                                      <div className="w-20 shrink-0 px-1">
-                                                        <select 
-                                                          className="w-full bg-white border border-gray-200 rounded text-[9px] font-bold outline-none focus:border-indigo-400 py-0.5"
-                                                          value={task.responsibleRoles || ''}
-                                                          onChange={(e) => onUpdateTask?.(task.id, { responsibleRoles: e.target.value })}
-                                                          onClick={e => e.stopPropagation()}
-                                                        >
-                                                          <option value="">- Role -</option>
-                                                          {project.responsibleRoles?.split(',').map(r => r.trim()).filter(Boolean).map(role => (
-                                                            <option key={role} value={role}>{role}</option>
-                                                          ))}
-                                                        </select>
-                                                      </div>
-                                                      <div className="w-20 shrink-0 text-center truncate text-gray-500 text-[9px] font-bold">
-                                                         {users.find(u => u.id === task.assigneeId)?.name || '-'}
-                                                      </div>
-                                                      <div className="w-32 shrink-0 text-right text-[8px] text-gray-400 font-black">
-                                                         {formatDate(task.plannedStartDate)} - {formatDate(task.plannedEndDate)}
-                                                      </div>
-                                                      <div className="w-14 shrink-0 text-right pr-1">
-                                                         {(() => {
-                                                           const d = calcWorkingDays(task.plannedStartDate, task.plannedEndDate);
-                                                           return <span className={`text-[9px] font-black ${d > 0 ? 'text-indigo-600' : 'text-gray-300'}`}>{d > 0 ? `${d}d` : '-'}</span>;
-                                                         })()}
+                                                    <div className="w-14 shrink-0 flex items-center pr-2" style={{ paddingLeft: `${getTaskLevel(task) * 24}px` }}>
+                                                       <div {...dragProvided.dragHandleProps} className="opacity-0 group-hover:opacity-100 text-gray-300 w-4">
+                                                          <GripVertical className="w-3 h-3" />
                                                        </div>
-                                                       <div className="w-24 shrink-0 text-right text-[10px] text-gray-500 font-bold px-2 truncate">
-                                                         {displayPreds || '-'}
-                                                       </div>
+                                                       <div className="text-[9px] font-black text-gray-500 w-full text-center">{wbsMap[task.id]}</div>
                                                     </div>
-
-                                                    {/* ── Inline Detail Panel (expands when selected) ── */}
-                                                    {isSelected && (
-                                                      <TaskDetailPanel
-                                                        task={task}
-                                                        users={users}
-                                                        project={project}
-                                                        wbsMap={wbsMap}
-                                                        criticalPathIds={criticalPathIds}
-                                                        onUpdateTask={onUpdateTask}
-                                                        onClose={() => onSelectTask(task.id)} // toggle off
-                                                      />
-                                                    )}
+                                                    <div className="w-[180px] shrink-0 flex items-center gap-2 pr-2">
+                                                       <div className={`h-1 w-1 rounded-full shrink-0 ${status === 'DONE' ? 'bg-green-500' : (status === 'PROG' ? 'bg-blue-500' : 'bg-gray-300')}`} />
+                                                       <input 
+                                                          type="text" 
+                                                          value={task.title} 
+                                                          onChange={(e) => onUpdateTask?.(task.id, { title: e.target.value })} 
+                                                          onClick={(e) => e.stopPropagation()}
+                                                          className="w-full bg-transparent border border-transparent hover:bg-white hover:border-gray-200 focus:bg-white focus:border-indigo-400 rounded px-1 py-0.5 text-[10px] font-medium outline-none truncate" 
+                                                       />
+                                                    </div>
+                                                    <div className="w-20 shrink-0 flex justify-center px-1">
+                                                       <select 
+                                                          className="w-full bg-transparent hover:bg-white border border-transparent hover:border-gray-200 rounded text-[9px] font-bold outline-none focus:border-indigo-400 py-0.5"
+                                                          value={task.status || 'TODO'}
+                                                          onChange={(e) => onUpdateTask?.(task.id, { status: e.target.value })}
+                                                          onClick={e => e.stopPropagation()}
+                                                       >
+                                                          {['TODO', 'PROG', 'DONE', 'OVR'].map(s => <option key={s} value={s}>{s}</option>)}
+                                                       </select>
+                                                    </div>
+                                                    <div className="w-24 shrink-0 px-1">
+                                                      <select 
+                                                        className="w-full bg-transparent hover:bg-white border border-transparent hover:border-gray-200 rounded text-[9px] font-bold outline-none focus:border-indigo-400 py-0.5 truncate"
+                                                        value={task.responsibleRoles || ''}
+                                                        onChange={(e) => onUpdateTask?.(task.id, { responsibleRoles: e.target.value })}
+                                                        onClick={e => e.stopPropagation()}
+                                                      >
+                                                        <option value="">- Role -</option>
+                                                        {project.responsibleRoles?.split(',').map(r => r.trim()).filter(Boolean).map(role => (
+                                                          <option key={role} value={role}>{role}</option>
+                                                        ))}
+                                                      </select>
+                                                    </div>
+                                                    <div className="w-24 shrink-0 px-1">
+                                                       <select 
+                                                          className="w-full bg-transparent hover:bg-white border border-transparent hover:border-gray-200 rounded text-[9px] font-bold outline-none focus:border-indigo-400 py-0.5 truncate"
+                                                          value={task.assigneeId || ''}
+                                                          onChange={(e) => onUpdateTask?.(task.id, { assigneeId: e.target.value ? Number(e.target.value) : undefined })}
+                                                          onClick={e => e.stopPropagation()}
+                                                       >
+                                                          <option value="">-</option>
+                                                          {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                                                       </select>
+                                                    </div>
+                                                    <div className="w-24 shrink-0 px-2">
+                                                       <input 
+                                                          type="date" 
+                                                          value={task.plannedStartDate?.split('T')[0] || ''} 
+                                                          onChange={(e) => onUpdateTask?.(task.id, { plannedStartDate: e.target.value })} 
+                                                          onClick={e => e.stopPropagation()}
+                                                          className="w-full bg-transparent hover:bg-white border border-transparent hover:border-gray-200 rounded px-1 py-0.5 text-[9px] font-bold outline-none focus:border-indigo-400" 
+                                                       />
+                                                    </div>
+                                                    <div className="w-24 shrink-0 px-2">
+                                                       <input 
+                                                          type="date" 
+                                                          value={task.plannedEndDate?.split('T')[0] || ''} 
+                                                          onChange={(e) => onUpdateTask?.(task.id, { plannedEndDate: e.target.value })} 
+                                                          onClick={e => e.stopPropagation()}
+                                                          className="w-full bg-transparent hover:bg-white border border-transparent hover:border-gray-200 rounded px-1 py-0.5 text-[9px] font-bold outline-none focus:border-indigo-400" 
+                                                       />
+                                                    </div>
+                                                    <div className="w-24 shrink-0 px-2">
+                                                       <input 
+                                                          type="date" 
+                                                          value={task.actualStartDate?.split('T')[0] || ''} 
+                                                          onChange={(e) => onUpdateTask?.(task.id, { actualStartDate: e.target.value })} 
+                                                          onClick={e => e.stopPropagation()}
+                                                          className="w-full bg-transparent hover:bg-white border border-transparent hover:border-gray-200 rounded px-1 py-0.5 text-[9px] font-bold outline-none focus:border-indigo-400" 
+                                                       />
+                                                    </div>
+                                                    <div className="w-24 shrink-0 px-2">
+                                                       <input 
+                                                          type="date" 
+                                                          value={task.actualEndDate?.split('T')[0] || ''} 
+                                                          onChange={(e) => onUpdateTask?.(task.id, { actualEndDate: e.target.value })} 
+                                                          onClick={e => e.stopPropagation()}
+                                                          className="w-full bg-transparent hover:bg-white border border-transparent hover:border-gray-200 rounded px-1 py-0.5 text-[9px] font-bold outline-none focus:border-indigo-400" 
+                                                       />
+                                                    </div>
+                                                    <div className="w-10 shrink-0 text-right pr-1">
+                                                       {(() => {
+                                                         const d = calcWorkingDays(task.plannedStartDate, task.plannedEndDate);
+                                                         return <span className={`text-[9px] font-black ${d > 0 ? 'text-indigo-600' : 'text-gray-300'}`}>{d > 0 ? `${d}d` : '-'}</span>;
+                                                       })()}
+                                                     </div>
+                                                     <div className="w-24 shrink-0 px-2">
+                                                        <input 
+                                                           type="text" 
+                                                           value={task.predecessors || ''} 
+                                                           onChange={(e) => onUpdateTask?.(task.id, { predecessors: e.target.value })} 
+                                                           onClick={e => e.stopPropagation()}
+                                                           placeholder="e.g. T1"
+                                                           className="w-full bg-transparent hover:bg-white border border-transparent hover:border-gray-200 rounded px-1 py-0.5 text-[9px] font-bold outline-none focus:border-indigo-400 truncate" 
+                                                        />
+                                                     </div>
+                                                     <div className="w-10 shrink-0 flex justify-center">
+                                                        <button 
+                                                           onClick={(e) => { e.stopPropagation(); onDeleteTask?.(task.id); }}
+                                                           className="p-1 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                                                        >
+                                                           <X className="w-3 h-3" />
+                                                        </button>
+                                                     </div>
                                                   </div>
                                                 )}
                                               </Draggable>
@@ -718,73 +546,158 @@ export default function WBSView({
                               </div>
                             </div>
                             {(expandedPhases['Common'] !== false) && (
-                              <div className="bg-white/30">
-                                {tasksWithoutExplicitGate.map((task) => {
-                                  const status = task.status === '已完成' ? 'DONE' : (task.status === '進行中' ? 'PROG' : (task.status || 'TODO'));
-                                  const isSelected = selectedTaskId === task.id;
-                                  
-                                  let displayPreds = task.predecessors || '';
-                                  const matches = displayPreds.match(/T\d+/g);
-                                  if (matches) {
-                                      matches.forEach(m => {
-                                          const tid = Number(m.substring(1));
-                                          if (wbsMap[tid]) displayPreds = displayPreds.replace(m, wbsMap[tid]);
-                                      });
-                                  }
+                              <Droppable droppableId={`phase______${project.id}`}>
+                                {(provided, snapshot) => (
+                                  <div {...provided.droppableProps} ref={provided.innerRef} className={`${snapshot.isDraggingOver ? 'bg-indigo-50/20' : 'bg-white/30'}`}>
+                                    {tasksWithoutExplicitGate
+                                      .sort((a, b) => {
+                                        const codeA = wbsMap[a.id] || '';
+                                        const codeB = wbsMap[b.id] || '';
+                                        return codeA.localeCompare(codeB, undefined, { numeric: true });
+                                      })
+                                      .map((task, idx) => {
+                                        const status = task.status === '已完成' ? 'DONE' : (task.status === '進行中' ? 'PROG' : (task.status || 'TODO'));
+                                        const isSelected = selectedTaskId === task.id;
+                                        
+                                        let displayPreds = task.predecessors || '';
+                                        const matches = displayPreds.match(/T\d+/g);
+                                        if (matches) {
+                                            matches.forEach(m => {
+                                                const tid = Number(m.substring(1));
+                                                if (wbsMap[tid]) displayPreds = displayPreds.replace(m, wbsMap[tid]);
+                                            });
+                                        }
 
-                                  return (
-                                    <div key={task.id} className="relative">
-                                      <div
-                                        onClick={() => onSelectTask(task.id)}
-                                        className={`flex items-center px-4 py-1 border-b border-slate-100 cursor-pointer ${
-                                          isSelected ? 'bg-indigo-50 ring-1 ring-indigo-200 shadow-sm' : 'hover:bg-slate-50'
-                                        }`}
-                                        style={{ paddingLeft: '64px' }}
-                                      >
-                                        <div className="w-14 shrink-0 flex items-center pr-2">
-                                           <div className="text-[9px] font-black text-slate-400 w-full text-center">{wbsMap[task.id] || '?'}</div>
-                                        </div>
-                                        <div className="flex-1 min-w-[150px] flex items-center gap-2 truncate">
-                                           <div className={`h-1 w-1 rounded-full shrink-0 ${status === 'DONE' ? 'bg-green-500' : (status === 'PROG' ? 'bg-blue-500' : 'bg-slate-300')}`} />
-                                           <span className="font-medium text-slate-700 truncate">{task.title}</span>
-                                        </div>
-                                        <div className="w-16 shrink-0 flex justify-center">
-                                           <span className={`text-[8px] font-black px-1 py-0.5 rounded-sm uppercase ${(statusConfig[status] || statusConfig['TODO']).color.replace('text-', 'border-').split(' ')[0]} border`}>
-                                             {status}
-                                           </span>
-                                        </div>
-                                        <div className="w-20 shrink-0 px-1"></div>
-                                        <div className="w-20 shrink-0 text-center truncate text-slate-400 text-[9px] font-bold">
-                                           {users.find(u => u.id === task.assigneeId)?.name || '-'}
-                                        </div>
-                                        <div className="w-32 shrink-0 text-right text-[8px] text-slate-400 font-black">
-                                           {formatDate(task.plannedStartDate)} - {formatDate(task.plannedEndDate)}
-                                        </div>
-                                        <div className="w-14 shrink-0 text-right pr-1">
-                                           {(() => {
-                                             const d = calcWorkingDays(task.plannedStartDate, task.plannedEndDate);
-                                             return <span className={`text-[9px] font-black ${d > 0 ? 'text-indigo-600' : 'text-slate-300'}`}>{d > 0 ? `${d}d` : '-'}</span>;
-                                           })()}
-                                        </div>
-                                        <div className="w-24 shrink-0 text-right text-[10px] text-slate-500 font-bold px-2 truncate">
-                                           {displayPreds || '-'}
-                                        </div>
-                                      </div>
-                                      {isSelected && (
-                                        <TaskDetailPanel
-                                          task={task}
-                                          users={users}
-                                          project={project}
-                                          wbsMap={wbsMap}
-                                          criticalPathIds={criticalPathIds}
-                                          onUpdateTask={onUpdateTask}
-                                          onClose={() => onSelectTask(task.id)}
-                                        />
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
+                                        return (
+                                          <Draggable key={task.id} draggableId={String(task.id)} index={idx}>
+                                            {(dragProvided, dragSnapshot) => (
+                                              <div
+                                                ref={dragProvided.innerRef}
+                                                {...dragProvided.draggableProps}
+                                                className={`flex items-center px-4 py-1 border-b border-gray-50 cursor-pointer ${
+                                                  isSelected ? 'bg-indigo-50 ring-1 ring-indigo-200 shadow-sm' : 'hover:bg-slate-50 bg-white'
+                                                } ${dragSnapshot.isDragging ? 'shadow-lg z-50 bg-white !left-0 !top-0' : ''}`}
+                                                onClick={() => onSelectTask(task.id)}
+                                              >
+                                                <div className="w-14 shrink-0 flex items-center pr-2" style={{ paddingLeft: `${getTaskLevel(task) * 24}px` }}>
+                                                   <div {...dragProvided.dragHandleProps} className="opacity-0 group-hover:opacity-100 text-gray-300 w-4">
+                                                      <GripVertical className="w-3 h-3" />
+                                                   </div>
+                                                   <div className="text-[9px] font-black text-slate-400 w-full text-center">{wbsMap[task.id] || '?'}</div>
+                                                </div>
+                                                <div className="w-[180px] shrink-0 flex items-center gap-2 pr-2">
+                                                   <div className={`h-1 w-1 rounded-full shrink-0 ${status === 'DONE' ? 'bg-green-500' : (status === 'PROG' ? 'bg-blue-500' : 'bg-slate-300')}`} />
+                                                   <input 
+                                                      type="text" 
+                                                      value={task.title} 
+                                                      onChange={(e) => onUpdateTask?.(task.id, { title: e.target.value })} 
+                                                      onClick={(e) => e.stopPropagation()}
+                                                      className="w-full bg-transparent border border-transparent hover:bg-white hover:border-gray-200 focus:bg-white focus:border-indigo-400 rounded px-1 py-0.5 text-[10px] font-medium outline-none truncate" 
+                                                   />
+                                                </div>
+                                                <div className="w-20 shrink-0 flex justify-center px-1">
+                                                   <select 
+                                                      className="w-full bg-transparent hover:bg-white border border-transparent hover:border-gray-200 rounded text-[9px] font-bold outline-none focus:border-indigo-400 py-0.5"
+                                                      value={task.status || 'TODO'}
+                                                      onChange={(e) => onUpdateTask?.(task.id, { status: e.target.value })}
+                                                      onClick={e => e.stopPropagation()}
+                                                   >
+                                                      {['TODO', 'PROG', 'DONE', 'OVR'].map(s => <option key={s} value={s}>{s}</option>)}
+                                                   </select>
+                                                </div>
+                                                <div className="w-24 shrink-0 px-1">
+                                                  <select 
+                                                    className="w-full bg-transparent hover:bg-white border border-transparent hover:border-gray-200 rounded text-[9px] font-bold outline-none focus:border-indigo-400 py-0.5 truncate"
+                                                    value={task.responsibleRoles || ''}
+                                                    onChange={(e) => onUpdateTask?.(task.id, { responsibleRoles: e.target.value })}
+                                                    onClick={e => e.stopPropagation()}
+                                                  >
+                                                    <option value="">- Role -</option>
+                                                    {project.responsibleRoles?.split(',').map(r => r.trim()).filter(Boolean).map(role => (
+                                                      <option key={role} value={role}>{role}</option>
+                                                    ))}
+                                                  </select>
+                                                </div>
+                                                <div className="w-24 shrink-0 px-1">
+                                                   <select 
+                                                      className="w-full bg-transparent hover:bg-white border border-transparent hover:border-gray-200 rounded text-[9px] font-bold outline-none focus:border-indigo-400 py-0.5 truncate"
+                                                      value={task.assigneeId || ''}
+                                                      onChange={(e) => onUpdateTask?.(task.id, { assigneeId: e.target.value ? Number(e.target.value) : undefined })}
+                                                      onClick={e => e.stopPropagation()}
+                                                   >
+                                                      <option value="">-</option>
+                                                      {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                                                   </select>
+                                                </div>
+                                                <div className="w-24 shrink-0 px-2">
+                                                   <input 
+                                                      type="date" 
+                                                      value={task.plannedStartDate?.split('T')[0] || ''} 
+                                                      onChange={(e) => onUpdateTask?.(task.id, { plannedStartDate: e.target.value })} 
+                                                      onClick={e => e.stopPropagation()}
+                                                      className="w-full bg-transparent hover:bg-white border border-transparent hover:border-gray-200 rounded px-1 py-0.5 text-[9px] font-bold outline-none focus:border-indigo-400" 
+                                                   />
+                                                </div>
+                                                <div className="w-24 shrink-0 px-2">
+                                                   <input 
+                                                      type="date" 
+                                                      value={task.plannedEndDate?.split('T')[0] || ''} 
+                                                      onChange={(e) => onUpdateTask?.(task.id, { plannedEndDate: e.target.value })} 
+                                                      onClick={e => e.stopPropagation()}
+                                                      className="w-full bg-transparent hover:bg-white border border-transparent hover:border-gray-200 rounded px-1 py-0.5 text-[9px] font-bold outline-none focus:border-indigo-400" 
+                                                   />
+                                                </div>
+                                                <div className="w-24 shrink-0 px-2">
+                                                   <input 
+                                                      type="date" 
+                                                      value={task.actualStartDate?.split('T')[0] || ''} 
+                                                      onChange={(e) => onUpdateTask?.(task.id, { actualStartDate: e.target.value })} 
+                                                      onClick={e => e.stopPropagation()}
+                                                      className="w-full bg-transparent hover:bg-white border border-transparent hover:border-gray-200 rounded px-1 py-0.5 text-[9px] font-bold outline-none focus:border-indigo-400" 
+                                                   />
+                                                </div>
+                                                <div className="w-24 shrink-0 px-2">
+                                                   <input 
+                                                      type="date" 
+                                                      value={task.actualEndDate?.split('T')[0] || ''} 
+                                                      onChange={(e) => onUpdateTask?.(task.id, { actualEndDate: e.target.value })} 
+                                                      onClick={e => e.stopPropagation()}
+                                                      className="w-full bg-transparent hover:bg-white border border-transparent hover:border-gray-200 rounded px-1 py-0.5 text-[9px] font-bold outline-none focus:border-indigo-400" 
+                                                   />
+                                                </div>
+                                                <div className="w-10 shrink-0 text-right pr-1">
+                                                   {(() => {
+                                                     const d = calcWorkingDays(task.plannedStartDate, task.plannedEndDate);
+                                                     return <span className={`text-[9px] font-black ${d > 0 ? 'text-indigo-600' : 'text-slate-300'}`}>{d > 0 ? `${d}d` : '-'}</span>;
+                                                   })()}
+                                                 </div>
+                                                 <div className="w-24 shrink-0 px-2">
+                                                    <input 
+                                                       type="text" 
+                                                       value={task.predecessors || ''} 
+                                                       onChange={(e) => onUpdateTask?.(task.id, { predecessors: e.target.value })} 
+                                                       onClick={(e) => e.stopPropagation()}
+                                                       placeholder="e.g. T1"
+                                                       className="w-full bg-transparent hover:bg-white border border-transparent hover:border-gray-200 rounded px-1 py-0.5 text-[9px] font-bold outline-none focus:border-indigo-400 truncate" 
+                                                    />
+                                                 </div>
+                                                 <div className="w-10 shrink-0 flex justify-center">
+                                                    <button 
+                                                       onClick={(e) => { e.stopPropagation(); onDeleteTask?.(task.id); }}
+                                                       className="p-1 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                                                    >
+                                                       <X className="w-3 h-3" />
+                                                    </button>
+                                                 </div>
+                                              </div>
+                                            )}
+                                          </Draggable>
+                                        );
+                                      })}
+                                    {provided.placeholder}
+                                  </div>
+                                )}
+                              </Droppable>
                             )}
                           </div>
                         )}

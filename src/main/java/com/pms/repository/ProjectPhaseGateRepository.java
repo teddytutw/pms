@@ -9,4 +9,5 @@ import java.util.List;
 public interface ProjectPhaseGateRepository extends JpaRepository<ProjectPhaseGate, Long> {
     List<ProjectPhaseGate> findByProjectIdOrderByApprovalDateDesc(Long projectId);
     List<ProjectPhaseGate> findByProjectId(Long projectId);
+    List<ProjectPhaseGate> findByProjectIdOrderByDisplayOrderAsc(Long projectId);
 }

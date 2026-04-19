@@ -24,9 +24,17 @@ public class AuthController {
 
     @Autowired
     private PasswordEncoder passwordEncoder;
-    
+
+    @org.springframework.beans.factory.annotation.Value("${app.version:unknown}")
+    private String appVersion;
+
     @org.springframework.beans.factory.annotation.Value("${pms.auth.mode:DB}")
     private String authMode;
+
+    @GetMapping("/config")
+    public ResponseEntity<?> getConfig() {
+        return ResponseEntity.ok(Map.of("version", appVersion));
+    }
 
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody Map<String, String> credentials) {

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Lock, Users } from 'lucide-react';
 
@@ -7,7 +7,15 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [version, setVersion] = useState('');
   const navigate = useNavigate();
+
+  useEffect(() => {
+    fetch(`${(import.meta as any).env.BASE_URL}api/auth/config`)
+      .then(res => res.json())
+      .then(data => setVersion(data.version))
+      .catch(() => {});
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,12 +47,23 @@ export default function Login() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-cyan-50 flex items-center justify-center p-4">
       <div className="max-w-md w-full bg-white rounded-3xl shadow-xl overflow-hidden border border-gray-100">
-        <div className="p-8">
-          <div className="flex justify-center mb-10">
-            <img src={(import.meta as any).env.BASE_URL + 'logo.png'} alt="Chicony Logo" className="h-20 w-auto object-contain" />
+        <div className="p-8 relative">
+          <div className="absolute top-6 left-8">
+            <img src={(import.meta as any).env.BASE_URL + 'company_logo.png'} alt="Company Logo" className="h-8 w-auto object-contain opacity-80" />
           </div>
-          
-          <h2 className="text-2xl font-bold text-center text-gray-900 mb-2">PMP 企業專案管理系統</h2>
+
+          <div className="flex flex-col items-center justify-center mb-10 pt-12 relative">
+            <div className="relative">
+              <img src={(import.meta as any).env.BASE_URL + 'logo.png'} alt="PSM Logo" className="h-20 w-auto object-contain" />
+              {version && (
+                <div className="absolute -bottom-4 -right-2 text-[10px] font-bold text-gray-400 opacity-60 pointer-events-none">
+                  v{version}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <h2 className="text-2xl font-bold text-center text-gray-900 mb-2">Project Management System</h2>
           <p className="text-gray-500 text-center mb-8">請登入您的帳號以開始協作</p>
 
           {error && (

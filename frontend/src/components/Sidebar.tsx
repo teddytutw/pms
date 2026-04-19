@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { 
-  LayoutDashboard, Users, Settings, LogOut, Menu, 
-  Folder, ChevronDown, ChevronRight, BarChart3, Clock, 
+import {
+  LayoutDashboard, Users, Settings, LogOut, Menu,
+  Folder, ChevronDown, ChevronRight, BarChart3, Clock,
   Calendar, PlayCircle, FileText
 } from 'lucide-react';
 
@@ -17,10 +17,10 @@ interface SidebarProps {
   allYears?: string[];
 }
 
-export default function Sidebar({ 
-  isSidebarOpen, 
-  setIsSidebarOpen, 
-  onStatusChange, 
+export default function Sidebar({
+  isSidebarOpen,
+  setIsSidebarOpen,
+  onStatusChange,
   onYearChange,
   currentStatus = 'ALL',
   currentYears = [],
@@ -68,24 +68,23 @@ export default function Sidebar({
       {/* Brand Header */}
       <div className="h-16 flex items-center justify-between px-4 border-b">
         <div className={`flex items-center gap-2 overflow-hidden ${!isSidebarOpen && 'hidden'}`}>
-          <img 
-            src={(import.meta as any).env.BASE_URL + 'chicony.png'} 
-            alt="Chicony Logo" 
-            className="h-6 w-auto object-contain flex-shrink-0" 
+          <img
+            src={(import.meta as any).env.BASE_URL + 'small_logo.png'}
+            alt="Logo"
+            className="h-10 w-auto object-contain flex-shrink-0"
           />
-          <div className="font-black text-xl text-slate-800 tracking-tighter uppercase">PMP</div>
         </div>
         {!isSidebarOpen && (
-           <div className="w-full flex justify-center">
-             <img 
-               src={(import.meta as any).env.BASE_URL + 'chicony.png'} 
-               alt="Logo" 
-               className="h-6 w-auto object-contain" 
-             />
-           </div>
+          <div className="w-full flex justify-center">
+            <img
+              src={(import.meta as any).env.BASE_URL + 'small_logo.png'}
+              alt="Logo"
+              className="h-10 w-auto object-contain"
+            />
+          </div>
         )}
-        <button 
-          onClick={() => setIsSidebarOpen(!isSidebarOpen)} 
+        <button
+          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
           className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 absolute right-4 lg:relative lg:right-0"
         >
           <Menu className="w-5 h-5" />
@@ -96,15 +95,14 @@ export default function Sidebar({
         <ul className="space-y-1 px-3">
           {/* Projects with Submenu */}
           <li>
-            <button 
+            <button
               onClick={() => {
                 if (!isSidebarOpen) setIsSidebarOpen(true);
                 setIsProjectsExpanded(!isProjectsExpanded);
                 if (!isActive('/projects')) navigate('/projects');
               }}
-              className={`w-full flex items-center justify-between h-10 px-3 rounded-xl transition-all ${
-                isActive('/projects') ? 'bg-indigo-50 text-indigo-600' : 'text-slate-500 hover:bg-slate-50'
-              }`}
+              className={`w-full flex items-center justify-between h-10 px-3 rounded-xl transition-all ${isActive('/projects') ? 'bg-indigo-50 text-indigo-600' : 'text-slate-500 hover:bg-slate-50'
+                }`}
             >
               <div className="flex items-center">
                 <LayoutDashboard className="w-5 h-5 shrink-0" />
@@ -114,21 +112,20 @@ export default function Sidebar({
                 isProjectsExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />
               )}
             </button>
-            
+
             {isSidebarOpen && isProjectsExpanded && (
               <ul className="mt-1 ml-4 space-y-1 border-l-2 border-slate-50 pl-2">
                 {statusItems.map(item => (
                   <li key={item.id}>
-                    <button 
+                    <button
                       onClick={() => {
                         if (!isActive('/projects')) navigate('/projects');
                         onStatusChange?.(item.id);
                       }}
-                      className={`w-full flex items-center h-9 px-3 rounded-lg text-[11px] font-bold transition-all ${
-                        isActive('/projects') && currentStatus === item.id 
-                          ? 'text-indigo-600 bg-indigo-50/50' 
-                          : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'
-                      }`}
+                      className={`w-full flex items-center h-9 px-3 rounded-lg text-[11px] font-bold transition-all ${isActive('/projects') && currentStatus === item.id
+                        ? 'text-indigo-600 bg-indigo-50/50'
+                        : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'
+                        }`}
                     >
                       <item.icon className="w-3.5 h-3.5 mr-2" />
                       {item.label}
@@ -141,15 +138,14 @@ export default function Sidebar({
 
           {/* WBS Analysis with Submenu */}
           <li>
-            <button 
+            <button
               onClick={() => {
                 if (!isSidebarOpen) setIsSidebarOpen(true);
                 setIsAnalysisExpanded(!isAnalysisExpanded);
                 if (!isActive('/dashboard')) navigate('/dashboard');
               }}
-              className={`w-full flex items-center justify-between h-10 px-3 rounded-xl transition-all ${
-                isActive('/dashboard') ? 'bg-indigo-50 text-indigo-600' : 'text-slate-500 hover:bg-slate-50'
-              }`}
+              className={`w-full flex items-center justify-between h-10 px-3 rounded-xl transition-all ${isActive('/dashboard') ? 'bg-indigo-50 text-indigo-600' : 'text-slate-500 hover:bg-slate-50'
+                }`}
             >
               <div className="flex items-center">
                 <BarChart3 className="w-5 h-5 shrink-0" />
@@ -159,19 +155,18 @@ export default function Sidebar({
                 isAnalysisExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />
               )}
             </button>
-            
+
             {isSidebarOpen && isAnalysisExpanded && (
               <ul className="mt-1 ml-4 space-y-1 border-l-2 border-slate-50 pl-2">
                 <li>
-                  <button 
+                  <button
                     onClick={() => {
                       if (!isActive('/dashboard')) navigate('/dashboard');
                     }}
-                    className={`w-full flex items-center h-9 px-3 rounded-lg text-[11px] font-bold transition-all ${
-                      isActive('/dashboard')
-                        ? 'text-indigo-600 bg-indigo-50/50' 
-                        : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'
-                    }`}
+                    className={`w-full flex items-center h-9 px-3 rounded-lg text-[11px] font-bold transition-all ${isActive('/dashboard')
+                      ? 'text-indigo-600 bg-indigo-50/50'
+                      : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'
+                      }`}
                   >
                     <LayoutDashboard className="w-3.5 h-3.5 mr-2" />
                     WBS View
@@ -184,11 +179,10 @@ export default function Sidebar({
           {/* Teams (Owner Only) */}
           {isOwner && (
             <li>
-              <button 
+              <button
                 onClick={() => navigate('/team')}
-                className={`w-full flex items-center h-10 px-3 rounded-xl transition-all ${
-                  isActive('/team') ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'text-slate-500 hover:bg-slate-50'
-                }`}
+                className={`w-full flex items-center h-10 px-3 rounded-xl transition-all ${isActive('/team') ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'text-slate-500 hover:bg-slate-50'
+                  }`}
               >
                 <Users className="w-5 h-5 shrink-0" />
                 <span className={`ml-3 font-bold whitespace-nowrap ${!isSidebarOpen && 'hidden'}`}>Teams</span>
@@ -198,8 +192,11 @@ export default function Sidebar({
 
           {/* Settings */}
           <li>
-            <button 
-              className="w-full flex items-center h-10 px-3 rounded-xl text-slate-500 hover:bg-slate-50 transition-all font-bold"
+            <button
+              onClick={() => navigate('/settings')}
+              className={`w-full flex items-center h-10 px-3 rounded-xl transition-all font-bold ${
+                isActive('/settings') ? 'bg-indigo-50 text-indigo-600' : 'text-slate-500 hover:bg-slate-50'
+              }`}
             >
               <Settings className="w-5 h-5 shrink-0" />
               <span className={`ml-3 whitespace-nowrap ${!isSidebarOpen && 'hidden'}`}>Settings</span>
@@ -214,25 +211,23 @@ export default function Sidebar({
               <Calendar className="w-3 h-3" /> Project Year
             </h3>
             <div className="flex flex-wrap gap-2">
-              <button 
+              <button
                 onClick={() => onYearChange?.([])}
-                className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${
-                  currentYears.length === 0 
-                    ? 'bg-slate-800 text-white shadow-md' 
-                    : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                }`}
+                className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${currentYears.length === 0
+                  ? 'bg-slate-800 text-white shadow-md'
+                  : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                  }`}
               >
                 ALL
               </button>
               {allYears.map(year => (
-                <button 
+                <button
                   key={year}
                   onClick={() => toggleYear(year)}
-                  className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${
-                    currentYears.includes(year)
-                      ? 'bg-indigo-600 text-white shadow-md' 
-                      : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                  }`}
+                  className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${currentYears.includes(year)
+                    ? 'bg-indigo-600 text-white shadow-md'
+                    : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                    }`}
                 >
                   {year}
                 </button>
@@ -243,8 +238,8 @@ export default function Sidebar({
       </nav>
 
       <div className="p-4 border-t">
-        <button 
-          onClick={handleLogout} 
+        <button
+          onClick={handleLogout}
           className="w-full flex items-center px-3 py-2 text-red-500 hover:bg-red-50 rounded-xl transition-all font-bold"
         >
           <LogOut className="w-5 h-5 shrink-0" />

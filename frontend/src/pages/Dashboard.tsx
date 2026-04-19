@@ -6,7 +6,7 @@ import 'gantt-task-react/dist/index.css';
 import WBSView from '../components/WBSView';
 
 import {
-  X, Search, Plus,
+  Search, Plus,
   ChevronLeft, ChevronRight, ArrowUp, ArrowDown, CalendarClock, Download,
   Folder, FileSpreadsheet
 } from 'lucide-react';
@@ -24,20 +24,6 @@ import ImportModal from '../components/ImportModal';
 //   return `${m}/${d}/${y}`;
 // };
 
-const calcWorkingDays = (start?: string, end?: string) => {
-  if (!start || !end) return 0;
-  const dStart = new Date(start);
-  const dEnd = new Date(end);
-  if (isNaN(dStart.getTime()) || isNaN(dEnd.getTime()) || dEnd < dStart) return 0;
-  let days = 0;
-  let current = new Date(dStart);
-  while (current <= dEnd) {
-    const day = current.getDay();
-    if (day !== 0 && day !== 6) days++;
-    current.setDate(current.getDate() + 1);
-  }
-  return days;
-};
 
 export default function Dashboard() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -61,9 +47,8 @@ export default function Dashboard() {
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
-  // Detail Drawer State
+  // Detail State
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   // Data
   const [tasks, setTasks] = useState<any[]>([]);
@@ -228,6 +213,14 @@ export default function Dashboard() {
     } catch (err) { console.error(err); }
   };
 
+  const handleDeleteTask = async (taskId: number) => {
+    if (!confirm('Are you sure you want to delete this task?')) return;
+    try {
+      const res = await fetch((import.meta as any).env.BASE_URL + `api/tasks/${taskId}`, { method: 'DELETE' });
+      if (res.ok && selectedProjectId) fetchProjectDetails(selectedProjectId);
+    } catch (err) { console.error(err); }
+  };
+
   const handleCreateProject = async () => {
     if (!newProject.name) return;
     try {
@@ -290,17 +283,27 @@ export default function Dashboard() {
 
   const handleSelectTask = (taskId: number | null) => {
     setSelectedTaskId(taskId);
-    setIsDrawerOpen(!!taskId);
   };
 
   const handleAdjustTask = async (direction: 'indent' | 'outdent' | 'up' | 'down') => {
-    if (!selectedTaskId) return;
+    if (!selectedTaskId) {
+      console.warn('No task selected for adjustment');
+      return;
+    }
+    console.log(`Adjusting task ${selectedTaskId} direction: ${direction}`);
     try {
       const res = await fetch((import.meta as any).env.BASE_URL + `api/tasks/${selectedTaskId}/adjust?direction=${direction}`, {
         method: 'POST'
       });
-      if (res.ok && selectedProjectId) fetchProjectDetails(selectedProjectId);
-    } catch (err) { console.error(err); }
+      if (res.ok) {
+        if (selectedProjectId) {
+          fetchProjectDetails(selectedProjectId);
+        }
+      } else {
+        const errText = await res.text();
+        console.error(`Adjust failed: ${errText}`);
+      }
+    } catch (err) { console.error('Error in handleAdjustTask:', err); }
   };
 
   const handleReschedule = async () => {
@@ -443,20 +446,35 @@ export default function Dashboard() {
   // WBS Map for simple display
   const wbsMap = useMemo(() => {
     const map: Record<number, string> = {};
-    const phases = Array.from(new Set(tasks.map(t => t.phase).filter(Boolean)));
+    const phaseGateNames = new Set(gates.map(g => g.phaseName));
+    const phases = Array.from(new Set(gates.map(g => g.phaseName))).filter(Boolean);
+
+    const assignRecursive = (taskList: any[], parentId: number | null, prefix: string) => {
+      // Use == for loose equality to handle string vs number IDs
+      const children = taskList
+        .filter(t => (t.parentTaskId || null) == parentId)
+        .sort((a, b) => (a.displayOrder ?? a.id) - (b.displayOrder ?? b.id));
+      
+      children.forEach((t, i) => {
+        const code = prefix ? `${prefix}.${i + 1}` : `${i + 1}`;
+        map[t.id] = code;
+        assignRecursive(taskList, t.id, code);
+      });
+    };
+
+    // 1. Phased Tasks
     phases.forEach((p, pi) => {
       const pts = tasks.filter(t => t.phase === p);
-      pts.forEach((t, ti) => {
-        map[t.id] = `${pi + 1}.${ti + 1}`;
-      });
+      assignRecursive(pts, null, String(pi + 1));
     });
-    return map;
-  }, [tasks]);
 
-  const criticalPathIds = useMemo(() => {
-    // Highly simplified dummy logic for now
-    return new Set<string>();
-  }, [tasks]);
+    // 2. Common Tasks
+    const common = tasks.filter(t => !t.phase || !phaseGateNames.has(t.phase));
+    assignRecursive(common, null, 'C');
+
+    return map;
+  }, [tasks, gates]);
+
 
   return (
     <div className="h-screen flex flex-col bg-white overflow-hidden">
@@ -612,8 +630,8 @@ export default function Dashboard() {
                      onUpdateTask={handleUpdateTask} 
                      onUpdatePhase={handleUpdatePhase}
                      onAdjustTask={handleAdjustTask} 
+                     onDeleteTask={handleDeleteTask}
                      wbsMap={wbsMap} 
-                     criticalPathIds={criticalPathIds}
                    />
                  </div>
 
@@ -647,29 +665,7 @@ export default function Dashboard() {
                     <div className="h-full flex items-center justify-center text-gray-300 font-black text-[10px] uppercase tracking-widest italic">Set dates to view Gantt Chart</div>
                   )}
                 </div>
-                {isDrawerOpen && (
-                  <div className="absolute inset-y-0 right-0 w-[420px] bg-white shadow-2xl border-l border-gray-100 z-30 flex flex-col transform transition-all">
-                     <div className="h-16 px-6 border-b flex items-center justify-between bg-white shrink-0">
-                        <h3 className="font-black text-slate-900 text-[11px] uppercase tracking-widest">Detail Maintenance</h3>
-                        <button onClick={() => setIsDrawerOpen(false)} className="p-2 hover:bg-gray-100 rounded-full text-gray-400"><X className="w-4 h-4" /></button>
-                     </div>
-                     <div className="flex-1 overflow-y-auto p-6">
-                        {selectedTaskId && tasks.find(t => t.id === selectedTaskId) ? (
-                            <TaskDrawerContent 
-                               task={tasks.find(t => t.id === selectedTaskId)} 
-                               users={users} 
-                               onUpdate={handleUpdateTask} 
-                               wbsCode={wbsMap[selectedTaskId]} 
-                               isCritical={criticalPathIds.has(String(selectedTaskId))} 
-                               projectRoles={currentProject?.responsibleRoles?.split(',').map((r: string) => r.trim()).filter(Boolean) || []}
-                            />
-                        ) : (
-                           <div className="text-gray-300 text-center py-20 italic">Loading...</div>
-                        )}
-                     </div>
-                  </div>
-                )}
-             </div>
+              </div>
           </div>
         </div>
 
@@ -787,86 +783,6 @@ export default function Dashboard() {
             }}
           />
         )}
-      </div>
-    </div>
-  );
-}
-
-function TaskDrawerContent({ task, users, onUpdate, wbsCode, isCritical, projectRoles }: { 
-  task: any, 
-  users: any[], 
-  onUpdate: any, 
-  wbsCode?: string, 
-  isCritical?: boolean,
-  projectRoles: string[]
-}) {
-  if (!task) return null;
-
-  return (
-    <div className="space-y-6">
-      {(wbsCode || isCritical) && (
-        <div className="flex items-center gap-2">
-          {wbsCode && <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-[9px] font-black rounded-md">WBS {wbsCode}</span>}
-          {isCritical && <span className="px-2 py-0.5 bg-red-50 text-red-700 text-[9px] font-black rounded-md border border-red-200">⚠ CRITICAL PATH</span>}
-        </div>
-      )}
-      <div>
-        <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Activity Name</label>
-        <input type="text" value={task.title} onChange={e => onUpdate(task.id, { title: e.target.value })} className="w-full px-4 py-2 bg-gray-50 border-2 border-transparent focus:border-indigo-400 rounded-xl outline-none text-[11px] font-black shadow-inner" />
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Assignee</label>
-          <Select options={users.map(u => ({ value: u.id, label: u.name }))} value={users.map(u => ({ value: u.id, label: u.name })).find(o => o.value === task.assigneeId) || null} onChange={o => onUpdate(task.id, { assigneeId: o?.value || null })} isClearable placeholder="Select..." />
-        </div>
-        <div>
-          <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Responsible Role</label>
-          <Select 
-            options={projectRoles.map(r => ({ value: r, label: r }))} 
-            value={task.responsibleRoles ? { value: task.responsibleRoles, label: task.responsibleRoles } : null} 
-            onChange={o => onUpdate(task.id, { responsibleRoles: o?.value || null })} 
-            isClearable 
-            placeholder="Select Role..." 
-          />
-        </div>
-      </div>
-      <div>
-        <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Status</label>
-        <Select options={['TODO', 'PROG', 'DONE', 'OVR'].map(s => ({ value: s, label: s }))} value={{ value: task.status || 'TODO', label: task.status || 'TODO' }} onChange={o => onUpdate(task.id, { status: o?.value })} />
-      </div>
-      <div className="p-4 bg-gray-50/50 rounded-2xl border border-gray-100 space-y-4">
-        <h4 className="text-[9px] font-black text-gray-400 uppercase tracking-widest border-b pb-2">Schedule</h4>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-           <div>
-             <label className="block text-[8px] font-black text-gray-500 uppercase mb-1">PL Start</label>
-             <input type="date" value={task.plannedStartDate || ''} onChange={e => onUpdate(task.id, { plannedStartDate: e.target.value })} className="w-full px-3 py-1.5 bg-white border border-gray-100 rounded-lg text-[9px] font-bold" />
-           </div>
-           <div>
-             <label className="block text-[8px] font-black text-gray-500 uppercase mb-1">PL End</label>
-             <input type="date" value={task.plannedEndDate || ''} onChange={e => onUpdate(task.id, { plannedEndDate: e.target.value })} className="w-full px-3 py-1.5 bg-white border border-gray-100 rounded-lg text-[9px] font-bold" />
-           </div>
-           <div>
-             <label className="block text-[8px] font-black text-gray-500 uppercase mb-1">ACT Start</label>
-             <input type="date" value={task.actualStartDate || ''} onChange={e => onUpdate(task.id, { actualStartDate: e.target.value })} className="w-full px-3 py-1.5 bg-white border border-gray-100 rounded-lg text-[9px] font-bold" />
-           </div>
-           <div>
-             <label className="block text-[8px] font-black text-gray-500 uppercase mb-1">ACT End</label>
-             <input type="date" value={task.actualEndDate || ''} onChange={e => onUpdate(task.id, { actualEndDate: e.target.value })} className="w-full px-3 py-1.5 bg-white border border-gray-100 rounded-lg text-[9px] font-bold" />
-           </div>
-        </div>
-        <div className="pt-2 flex justify-between items-center text-[10px] font-black text-slate-500 uppercase">
-           <span>PL DUR: {calcWorkingDays(task.plannedStartDate, task.plannedEndDate)}D</span>
-           <span className={task.actualEndDate ? 'text-green-600' : 'text-gray-400'}>
-             ACT DUR: {calcWorkingDays(task.actualStartDate, task.actualEndDate)}D
-           </span>
-        </div>
-      </div>
-      <div className="border border-dashed border-gray-200 rounded-2xl p-4">
-        <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Predecessors (Backend Format e.g. T25[FS+3])</label>
-        <input type="text" value={task.predecessors || ''} onChange={e => onUpdate(task.id, { predecessors: e.target.value })} className="w-full px-4 py-2 bg-gray-50 border-2 border-transparent focus:border-indigo-400 rounded-xl outline-none text-[11px] font-black shadow-inner mb-4" placeholder="T12[FS], T15[SS+2]" />
-        
-        <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Memo / Notes</label>
-        <textarea placeholder="Add note..." className="w-full h-24 px-4 py-2 bg-transparent outline-none text-[10px] font-medium resize-none" />
       </div>
     </div>
   );

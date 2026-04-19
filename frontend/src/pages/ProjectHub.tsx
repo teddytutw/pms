@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Folder, Search, Plus, LayoutGrid, List as ListIcon, 
-  ArrowUpRight, Users, Tag, ChevronRight, BarChart3, Clock,
+  ArrowUpRight, Tag, ChevronRight, BarChart3, Clock,
   CalendarClock, Download, FileSpreadsheet, X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -13,7 +13,7 @@ export default function ProjectHub() {
   const navigate = useNavigate();
   const [projects, setProjects] = useState<any[]>([]);
   const [search, setSearch] = useState('');
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [yearFilters, setYearFilters] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -348,13 +348,7 @@ export default function ProjectHub() {
                        <h3 className={`text-xl font-black mb-2 truncate transition-colors ${selectedProjectId === p.id ? 'text-indigo-600' : 'text-slate-900 group-hover:text-indigo-600'}`}>{p.name}</h3>
                        <p className="text-slate-400 text-sm font-medium line-clamp-2 mb-8 h-10 leading-relaxed">{p.description || 'No description available for this project.'}</p>
                        
-                       <div className="flex items-center justify-between pt-6 border-t border-slate-50">
-                          <div className="flex items-center gap-3 text-slate-400">
-                             <div className="flex -space-x-2">
-                                {[1,2,3].map(m => <div key={m} className={`w-7 h-7 rounded-full border-2 border-white ${selectedProjectId === p.id ? 'bg-indigo-100' : 'bg-slate-200'}`} />)}
-                             </div>
-                             <span className="text-[10px] font-black uppercase tracking-tight">8 Members</span>
-                          </div>
+                       <div className="flex items-center justify-end pt-6 border-t border-slate-50">
                           <ChevronRight className={`w-5 h-5 transition-all ${selectedProjectId === p.id ? 'text-indigo-600 translate-x-1' : 'text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1'}`} />
                        </div>
                      </>
@@ -382,10 +376,6 @@ export default function ProjectHub() {
                               </div>
                            </div>
                            <div className="flex items-center gap-2">
-                              <Users className="w-4 h-4" />
-                              <span className="text-[10px] font-black">12</span>
-                           </div>
-                           <div className="flex items-center gap-2">
                               <BarChart3 className="w-4 h-4" />
                               <span className="text-[10px] font-black uppercase">Active</span>
                            </div>
@@ -400,7 +390,7 @@ export default function ProjectHub() {
              <div className="flex-1 flex flex-col items-center justify-center py-40 space-y-6">
                 <div className="w-24 h-24 bg-slate-100 rounded-full flex items-center justify-center text-slate-300"><Search className="w-12 h-12" /></div>
                 <div className="text-center">
-                   <h3 className="text-slate-900 font-black tracking-tight text-xl mb-1">No results for "{search}"</h3>
+                   <h3 className="text-slate-900 font-black tracking-tight text-xl mb-1">No results for \"{search}\"</h3>
                    <p className="text-slate-400 font-bold text-sm">Try using different filters or search keywords.</p>
                 </div>
                 <button onClick={() => { setSearch(''); setStatusFilter('ALL'); setYearFilters([]); }} className="px-6 py-3 bg-white border border-slate-200 rounded-2xl text-[11px] font-black text-indigo-600 hover:bg-slate-50 shadow-sm transition-all uppercase tracking-widest">Clear all filters</button>
