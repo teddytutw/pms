@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { User, Mail, Shield, Bell, Monitor, Lock } from 'lucide-react';
 import Sidebar from '../components/Sidebar';
+import EmailNotificationSettings from '../components/EmailNotificationSettings';
 
 export default function Settings() {
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -102,6 +103,12 @@ export default function Settings() {
                 </div>
 
               </div>
+            </section>
+
+            {/* Email Notification Templates */}
+            <section className="space-y-4">
+              <h2 className="text-sm font-black text-slate-400 uppercase tracking-widest px-1">Email 通知設定</h2>
+              <EmailNotificationSettings />
             </section>
 
             {/* Security Notice */}

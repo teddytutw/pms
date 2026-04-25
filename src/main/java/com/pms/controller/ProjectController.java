@@ -2,9 +2,11 @@ package com.pms.controller;
 
 import com.pms.entity.Project;
 import com.pms.repository.ProjectRepository;
+import com.pms.entity.ActivityTeamMember;
 import com.pms.entity.ProjectMember;
 import com.pms.entity.ProjectPhaseGate;
 import com.pms.entity.Task;
+import com.pms.repository.ActivityTeamMemberRepository;
 import com.pms.repository.ProjectMemberRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -41,6 +43,9 @@ public class ProjectController {
     private ProjectMemberRepository memberRepository;
 
     @Autowired
+    private ActivityTeamMemberRepository teamMemberRepository;
+
+    @Autowired
     private com.pms.repository.TaskRepository taskRepository;
 
     @Autowired
@@ -71,8 +76,18 @@ public class ProjectController {
     }
 
     @GetMapping
-    public List<Project> getAllProjects() {
+    public List<Project> getAllProjects(@RequestParam(required = false) Long userId) {
         List<Project> projects = projectRepository.findAll();
+        if (userId != null) {
+            java.util.Set<String> memberTargetIds = teamMemberRepository
+                .findByTargetTypeAndUserId("PROJECT", userId)
+                .stream()
+                .map(ActivityTeamMember::getTargetId)
+                .collect(java.util.stream.Collectors.toSet());
+            projects = projects.stream()
+                .filter(p -> memberTargetIds.contains(String.valueOf(p.getId())))
+                .collect(java.util.stream.Collectors.toList());
+        }
         for (Project p : projects) {
             List<Task> tasks = taskRepository.findByProjectIdOrderByDisplayOrderAsc(p.getId());
             List<ProjectPhaseGate> phases = phaseRepository.findByProjectId(p.getId());

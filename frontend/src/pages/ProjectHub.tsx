@@ -20,6 +20,12 @@ export default function ProjectHub() {
   const [yearFilters, setYearFilters] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [currentUser, setCurrentUser] = useState<any>(null);
+
+  useEffect(() => {
+    const userJson = localStorage.getItem('currentUser');
+    if (userJson) { try { setCurrentUser(JSON.parse(userJson)); } catch (e) {} }
+  }, []);
 
   // To-do list state
   const [todoTasks, setTodoTasks] = useState<any[]>([]);
@@ -77,7 +83,16 @@ export default function ProjectHub() {
 
   const fetchProjects = () => {
     setLoading(true);
-    fetch((import.meta as any).env.BASE_URL + 'api/projects')
+    const userJson = localStorage.getItem('currentUser');
+    let userIdParam = '';
+    if (userJson) {
+      try {
+        const user = JSON.parse(userJson);
+        // 系統管理員(OWNER)可看所有專案，不傳 userId 過濾
+        if (user && user.id && user.role !== 'OWNER') userIdParam = `?userId=${user.id}`;
+      } catch (e) {}
+    }
+    fetch((import.meta as any).env.BASE_URL + `api/projects${userIdParam}`)
       .then(res => res.json())
       .then(data => {
         setProjects(data);
@@ -276,7 +291,7 @@ export default function ProjectHub() {
         {/* Top Header */}
         <header className="h-16 bg-white border-b border-slate-200 px-8 flex items-center justify-between z-10 shrink-0">
           <div className="flex items-center gap-4">
-            <h1 className="text-xl font-black text-slate-900 tracking-tight">Project Hub</h1>
+            <h1 className="text-xl font-black text-slate-900 tracking-tight">Projects</h1>
           </div>
           
           <div className="flex items-center gap-6">
@@ -286,8 +301,10 @@ export default function ProjectHub() {
              </div>
              <div className="h-8 w-[1px] bg-slate-200" />
              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-white font-black text-xs">U</div>
-                <span className="text-sm font-bold text-slate-700">User</span>
+                <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-white font-black text-xs">
+                  {currentUser?.username?.charAt(0).toUpperCase() ?? 'U'}
+                </div>
+                <span className="text-sm font-bold text-slate-700">{currentUser?.username ?? 'User'}</span>
              </div>
           </div>
         </header>
@@ -432,34 +449,34 @@ export default function ProjectHub() {
 
            {/* Quick Stats */}
            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              <div className="bg-white px-4 py-2.5 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-3">
+              <button onClick={() => setStatusFilter('ALL')} className={`px-4 py-2.5 rounded-2xl border shadow-sm flex items-center gap-3 text-left transition-all hover:shadow-md ${statusFilter === 'ALL' ? 'bg-indigo-50 border-indigo-300 ring-2 ring-indigo-200' : 'bg-white border-slate-100 hover:border-indigo-200'}`}>
                  <div className="w-8 h-8 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-600 shrink-0"><BarChart3 className="w-4 h-4" /></div>
                  <div>
-                    <div className="text-[9px] font-black text-slate-400 uppercase">Total</div>
+                    <div className="text-[9px] font-black text-slate-400 uppercase">All</div>
                     <div className="text-base font-black text-slate-900 leading-tight">{stats.total}</div>
                  </div>
-              </div>
-              <div className="bg-white px-4 py-2.5 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-3">
+              </button>
+              <button onClick={() => setStatusFilter('STARTED')} className={`px-4 py-2.5 rounded-2xl border shadow-sm flex items-center gap-3 text-left transition-all hover:shadow-md ${statusFilter === 'STARTED' ? 'bg-green-50 border-green-300 ring-2 ring-green-200' : 'bg-white border-slate-100 hover:border-green-200'}`}>
                  <div className="w-8 h-8 bg-green-50 rounded-xl flex items-center justify-center text-green-600 shrink-0"><ArrowUpRight className="w-4 h-4" /></div>
                  <div>
                     <div className="text-[9px] font-black text-slate-400 uppercase">Started</div>
                     <div className="text-base font-black text-slate-900 leading-tight">{stats.active}</div>
                  </div>
-              </div>
-              <div className="bg-white px-4 py-2.5 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-3">
+              </button>
+              <button onClick={() => setStatusFilter('NOT_STARTED')} className={`px-4 py-2.5 rounded-2xl border shadow-sm flex items-center gap-3 text-left transition-all hover:shadow-md ${statusFilter === 'NOT_STARTED' ? 'bg-amber-50 border-amber-300 ring-2 ring-amber-200' : 'bg-white border-slate-100 hover:border-amber-200'}`}>
                  <div className="w-8 h-8 bg-amber-50 rounded-xl flex items-center justify-center text-amber-600 shrink-0"><Clock className="w-4 h-4" /></div>
                  <div>
-                    <div className="text-[9px] font-black text-slate-400 uppercase">Upcoming</div>
+                    <div className="text-[9px] font-black text-slate-400 uppercase">Not Started</div>
                     <div className="text-base font-black text-slate-900 leading-tight">{stats.upcoming}</div>
                  </div>
-              </div>
-              <div className="bg-white px-4 py-2.5 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-3">
+              </button>
+              <button onClick={() => setStatusFilter('TEMPLATE')} className={`px-4 py-2.5 rounded-2xl border shadow-sm flex items-center gap-3 text-left transition-all hover:shadow-md ${statusFilter === 'TEMPLATE' ? 'bg-slate-100 border-slate-400 ring-2 ring-slate-200' : 'bg-white border-slate-100 hover:border-slate-300'}`}>
                  <div className="w-8 h-8 bg-slate-50 rounded-xl flex items-center justify-center text-slate-600 shrink-0"><Tag className="w-4 h-4" /></div>
                  <div>
-                    <div className="text-[9px] font-black text-slate-400 uppercase">Templates</div>
+                    <div className="text-[9px] font-black text-slate-400 uppercase">Template</div>
                     <div className="text-base font-black text-slate-900 leading-tight">{stats.templates}</div>
                  </div>
-              </div>
+              </button>
            </div>
            </div>{/* end sticky top controls */}
 
@@ -468,7 +485,7 @@ export default function ProjectHub() {
            {loading ? (
              <div className="flex-1 flex items-center justify-center py-20 text-slate-300 font-bold text-xl italic">Loading your projects...</div>
            ) : filteredProjects.length > 0 ? (
-             <div className={viewMode === 'grid' ? "grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-8 pb-12" : "space-y-3 pb-12"}>
+             <div className={viewMode === 'grid' ? "grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-8 pb-12" : "space-y-1 pb-12"}>
                {filteredProjects.map((p, i) => (
                  <motion.div 
                    key={p.id}
@@ -480,11 +497,11 @@ export default function ProjectHub() {
                    className={`group bg-white border cursor-pointer overflow-hidden transition-all relative ${
                      selectedProjectId === p.id ? 'ring-4 ring-indigo-600/10 border-indigo-600 shadow-2xl' : 'border-slate-100 hover:shadow-2xl hover:border-indigo-100'
                    } ${
-                     viewMode === 'grid' ? 'rounded-3xl p-8' : 'rounded-2xl p-4 flex items-center justify-between'
+                     viewMode === 'grid' ? 'rounded-3xl p-8' : 'rounded-xl px-4 py-2 flex items-center justify-between'
                    }`}
                  >
                    {selectedProjectId === p.id && (
-                     <div className="absolute top-4 right-4 w-6 h-6 bg-indigo-600 rounded-full flex items-center justify-center shadow-lg transition-all">
+                     <div className="absolute top-2 right-2 w-5 h-5 bg-indigo-600 rounded-full flex items-center justify-center shadow-lg transition-all">
                         <X className="w-3.5 h-3.5 text-white" />
                      </div>
                    )}
@@ -525,8 +542,8 @@ export default function ProjectHub() {
                    ) : (
                      /* List View Row */
                      <>
-                        <div className="flex items-center gap-6 flex-1 min-w-0">
-                           <div className="w-10 h-10 rounded-xl overflow-hidden shrink-0">
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                           <div className="w-8 h-8 rounded-lg overflow-hidden shrink-0">
                              {p.coverImagePath ? (
                                <img
                                  src={(import.meta as any).env.BASE_URL + `api/projects/${p.id}/cover`}
@@ -535,7 +552,7 @@ export default function ProjectHub() {
                                />
                              ) : (
                                <div className={`w-full h-full flex items-center justify-center transition-all ${selectedProjectId === p.id ? 'bg-indigo-600 text-white' : 'bg-slate-50 text-slate-400 group-hover:bg-indigo-600 group-hover:text-white'}`}>
-                                 <Folder className="w-5 h-5" />
+                                 <Folder className="w-4 h-4" />
                                </div>
                              )}
                            </div>
@@ -548,7 +565,7 @@ export default function ProjectHub() {
                               </div>
                            </div>
                         </div>
-                        <div className="flex items-center gap-8 text-slate-400 px-8">
+                        <div className="flex items-center gap-6 text-slate-400 px-4">
                            <div className="flex flex-col items-center">
                               <span className="text-[8px] font-black uppercase mb-1">Status</span>
                               <div className="w-12 h-1 bg-slate-100 rounded-full overflow-hidden leading-none">

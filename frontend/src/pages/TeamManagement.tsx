@@ -20,10 +20,13 @@ interface User {
   enabled?: boolean;
 }
 
-interface ProjectMember {
+interface ActivityTeamMember {
   id: number;
+  targetType: string;
+  targetId: string;
   userId: number;
-  projectRole: string;
+  responsibility: string;
+  userName?: string;
 }
 
 interface Project {
@@ -38,7 +41,9 @@ export default function TeamManagement() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
-  const [teamMembers, setTeamMembers] = useState<ProjectMember[]>([]);
+  const [teamMembers, setTeamMembers] = useState<ActivityTeamMember[]>([]);
+  const [addUserId, setAddUserId] = useState<number | null>(null);
+  const [addResponsibility, setAddResponsibility] = useState<'Owner' | 'Member'>('Member');
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const navigate = useNavigate();
 
@@ -83,7 +88,7 @@ export default function TeamManagement() {
 
   useEffect(() => {
     if (selectedProjectId) {
-      fetch((import.meta as any).env.BASE_URL + `api/projects/${selectedProjectId}/members`)
+      fetch((import.meta as any).env.BASE_URL + `api/activity-teams?targetType=PROJECT&targetId=${selectedProjectId}`)
         .then(res => res.json())
         .then(setTeamMembers)
         .catch(console.error);
@@ -91,7 +96,10 @@ export default function TeamManagement() {
   }, [selectedProjectId]);
 
   const currentProject = projects.find(p => p.id === selectedProjectId);
-  const isOwner = currentUser && currentProject && currentProject.ownerId === currentUser.id;
+  const isOwner = currentUser && (
+    (currentProject && currentProject.ownerId === currentUser.id) ||
+    teamMembers.some(m => m.userId === currentUser.id && m.responsibility === 'Owner')
+  );
 
   const handleCreateUser = async () => {
     setFormError('');
@@ -179,23 +187,37 @@ export default function TeamManagement() {
     setFormError('');
   };
 
-  const handleAddMember = async (userId: number) => {
-    if (!selectedProjectId) return;
+  const handleAddMember = async () => {
+    if (!selectedProjectId || !addUserId) return;
     try {
-      const res = await fetch((import.meta as any).env.BASE_URL + `api/projects/${selectedProjectId}/members`, {
+      const res = await fetch((import.meta as any).env.BASE_URL + `api/activity-teams`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, projectRole: 'Member' })
+        body: JSON.stringify({
+          targetType: 'PROJECT',
+          targetId: String(selectedProjectId),
+          userId: addUserId,
+          responsibility: addResponsibility
+        })
       });
-      if (res.ok) setTeamMembers([...teamMembers, await res.json()]);
+      if (res.ok) {
+        const added = await res.json();
+        const u = allUsers.find(u => u.id === addUserId);
+        setTeamMembers([...teamMembers, { ...added, userName: u?.name }]);
+        setAddUserId(null);
+        setAddResponsibility('Member');
+      } else {
+        const msg = await res.text();
+        alert(msg || '加入失敗');
+      }
     } catch (err) { console.error(err); }
   };
 
-  const handleRemoveMember = async (userId: number) => {
-    if (!selectedProjectId || !confirm('確定要將此成員從專案中移除嗎？')) return;
+  const handleRemoveMember = async (memberId: number) => {
+    if (!confirm('確定要將此成員從專案中移除嗎？')) return;
     try {
-      const res = await fetch((import.meta as any).env.BASE_URL + `api/projects/${selectedProjectId}/members/${userId}`, { method: 'DELETE' });
-      if (res.ok) setTeamMembers(teamMembers.filter(m => m.userId !== userId));
+      const res = await fetch((import.meta as any).env.BASE_URL + `api/activity-teams/${memberId}`, { method: 'DELETE' });
+      if (res.ok) setTeamMembers(teamMembers.filter(m => m.id !== memberId));
     } catch (err) { console.error(err); }
   };
 
@@ -316,6 +338,11 @@ export default function TeamManagement() {
   const memberOptions = allUsers
     .filter(u => u.enabled !== false && !teamMembers.some(m => m.userId === u.id))
     .map(u => ({ value: u.id, label: `${u.name} (${u.email})` }));
+
+  const responsibilityOptions = [
+    { value: 'Owner' as const, label: 'Owner（可編輯）' },
+    { value: 'Member' as const, label: 'Member（唯讀）' },
+  ];
 
   const roleOptions = [
     { value: 'OWNER', label: '系統管理員 (OWNER)' },
@@ -585,13 +612,34 @@ export default function TeamManagement() {
                   <h4 className="text-sm font-bold text-indigo-900 mb-3 flex items-center">
                     <UserPlus className="w-4 h-4 mr-2" /> 從系統使用者中加入成員
                   </h4>
-                  <Select
-                    placeholder="搜尋系統使用者名稱或電子郵件 (僅顯示啟用中)..."
-                    options={memberOptions}
-                    onChange={(opt) => opt && handleAddMember(opt.value)}
-                    isClearable
-                    value={null}
-                  />
+                  <div className="flex gap-3 items-end">
+                    <div className="flex-1">
+                      <label className="block text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1.5">選擇帳號（僅顯示啟用中）</label>
+                      <Select
+                        placeholder="搜尋姓名或電子郵件..."
+                        options={memberOptions}
+                        onChange={(opt) => setAddUserId(opt?.value ?? null)}
+                        isClearable
+                        value={memberOptions.find(o => o.value === addUserId) || null}
+                      />
+                    </div>
+                    <div className="w-52">
+                      <label className="block text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1.5">Responsibility</label>
+                      <Select
+                        options={responsibilityOptions}
+                        value={responsibilityOptions.find(o => o.value === addResponsibility)}
+                        onChange={(opt) => setAddResponsibility(opt?.value ?? 'Member')}
+                        isSearchable={false}
+                      />
+                    </div>
+                    <button
+                      onClick={handleAddMember}
+                      disabled={!addUserId}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-sm font-bold rounded-xl hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-sm whitespace-nowrap"
+                    >
+                      <UserPlus className="w-4 h-4" /> 加入
+                    </button>
+                  </div>
                   {memberOptions.length === 0 && allUsers.length > 0 && (
                     <p className="text-xs text-indigo-400 mt-2">所有啟用中的系統使用者均已加入此專案。</p>
                   )}
@@ -605,29 +653,32 @@ export default function TeamManagement() {
                 <div className="divide-y">
                   {teamMembers.map(member => {
                     const u = allUsers.find(user => user.id === member.userId);
-                    const isMemberOwner = currentProject && u && currentProject.ownerId === u.id;
+                    const isThisOwner = member.responsibility === 'Owner';
+                    const isProjectOwner = currentProject && u && currentProject.ownerId === u.id;
+                    const displayName = u?.name || member.userName || `User #${member.userId}`;
                     return (
                       <div key={member.id} className="flex items-center justify-between p-4 hover:bg-gray-50 transition-colors">
                         <div className="flex items-center space-x-4">
-                          <div className={`h-11 w-11 rounded-xl flex items-center justify-center font-bold text-lg ${isMemberOwner ? 'bg-amber-100 text-amber-700' : 'bg-indigo-50 text-indigo-600'}`}>
-                            {u?.name.charAt(0) || '?'}
+                          <div className={`h-11 w-11 rounded-xl flex items-center justify-center font-bold text-lg ${isThisOwner ? 'bg-amber-100 text-amber-700' : 'bg-indigo-50 text-indigo-600'}`}>
+                            {displayName.charAt(0)}
                           </div>
                           <div>
                             <p className="font-bold text-gray-900 text-sm flex items-center gap-2">
-                              {u?.name}
-                              {isMemberOwner && <span className="bg-amber-500 text-white text-[10px] px-1.5 py-0.5 rounded font-black">OWNER</span>}
+                              {displayName}
+                              {isProjectOwner && <span className="bg-amber-500 text-white text-[10px] px-1.5 py-0.5 rounded font-black">專案負責人</span>}
                               {u?.enabled === false && <span className="bg-gray-500 text-white text-[9px] px-1.5 py-0.5 rounded font-black">停用中</span>}
                             </p>
                             <p className="text-xs text-gray-400">{u?.email}</p>
-                            <p className="text-xs text-indigo-600 font-bold mt-0.5">{member.projectRole}</p>
+                            <span className={`inline-block text-[10px] font-black px-2 py-0.5 rounded-full mt-0.5 ${isThisOwner ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>
+                              {member.responsibility}
+                            </span>
                           </div>
                         </div>
-                        {isOwner && !isMemberOwner && (
-                          <button onClick={() => handleRemoveMember(member.userId)} className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all" title="從專案移除">
+                        {isOwner && (
+                          <button onClick={() => handleRemoveMember(member.id)} className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all" title="從專案移除">
                             <Trash2 className="w-4 h-4" />
                           </button>
                         )}
-                        {isMemberOwner && <span className="text-xs text-gray-300 italic px-2">負責人不可移除</span>}
                       </div>
                     );
                   })}

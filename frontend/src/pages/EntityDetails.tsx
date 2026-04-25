@@ -59,6 +59,7 @@ export default function EntityDetails() {
 
   const [activeTab, setActiveTab] = useState('details');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [canEdit, setCanEdit] = useState(false);
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -134,13 +135,18 @@ export default function EntityDetails() {
 
   const fetchEntityData = async () => {
     try {
+      const userJson = localStorage.getItem('currentUser');
+      const loggedInUser = userJson ? JSON.parse(userJson) : null;
+      const isSysAdmin = loggedInUser?.role === 'OWNER';
+
       if (targetId === 'new') {
         if (targetType === 'PROJECT') {
+          setCanEdit(true);
           setForm({
             activityId: 'new',
             activityType: 'PROJECT',
             activityName: '',
-            ownerId: '',
+            ownerId: loggedInUser?.id ?? '',
             responsibleRoles: [],
             plannedStartDate: '',
             plannedEndDate: '',
@@ -185,6 +191,16 @@ export default function EntityDetails() {
             Object.entries(rmData).forEach(([role, uid]) => { mapped[role] = uid || ''; });
             setRoleMembers(mapped);
           }
+          // 系統管理員可直接編輯；否則檢查是否為 project team Owner
+          if (isSysAdmin) {
+            setCanEdit(true);
+          } else if (loggedInUser?.id) {
+            const teamRes = await fetch((import.meta as any).env.BASE_URL + `api/activity-teams?targetType=PROJECT&targetId=${targetId}`);
+            if (teamRes.ok) {
+              const members: any[] = await teamRes.json();
+              setCanEdit(members.some(m => m.userId === loggedInUser.id && m.responsibility === 'Owner'));
+            }
+          }
         }
       } else if (targetType === 'PHASE') {
         // targetId = "projectId-phaseName"
@@ -220,6 +236,16 @@ export default function EntityDetails() {
             const p = await pRes.json();
             setParentProjectRoles(p.responsibleRoles ? p.responsibleRoles.split(',').map((r: string) => r.trim()).filter(Boolean) : []);
           }
+          // 系統管理員可直接編輯；否則檢查是否為 project team Owner
+          if (isSysAdmin) {
+            setCanEdit(true);
+          } else if (loggedInUser?.id) {
+            const teamRes = await fetch((import.meta as any).env.BASE_URL + `api/activity-teams?targetType=PROJECT&targetId=${projectId}`);
+            if (teamRes.ok) {
+              const members: any[] = await teamRes.json();
+              setCanEdit(members.some(m => m.userId === loggedInUser.id && m.responsibility === 'Owner'));
+            }
+          }
         }
       } else if (targetType === 'TASK') {
         const res = await fetch((import.meta as any).env.BASE_URL + `api/tasks/${targetId}`);
@@ -248,6 +274,16 @@ export default function EntityDetails() {
             const p = await pRes.json();
             setParentProjectRoles(p.responsibleRoles ? p.responsibleRoles.split(',').map((r: string) => r.trim()).filter(Boolean) : []);
           }
+          // 系統管理員可直接編輯；否則檢查是否為 project team Owner
+          if (isSysAdmin) {
+            setCanEdit(true);
+          } else if (loggedInUser?.id && d.projectId) {
+            const teamRes = await fetch((import.meta as any).env.BASE_URL + `api/activity-teams?targetType=PROJECT&targetId=${d.projectId}`);
+            if (teamRes.ok) {
+              const members: any[] = await teamRes.json();
+              setCanEdit(members.some(m => m.userId === loggedInUser.id && m.responsibility === 'Owner'));
+            }
+          }
         }
       }
     } catch (e) {
@@ -264,6 +300,11 @@ export default function EntityDetails() {
 
   // ── Save ─────────────────────────────────────────────────────
   const handleSave = async () => {
+    // 新建專案時 Owner 為必填
+    if (targetType === 'PROJECT' && !form.ownerId) {
+      setSaveMsg('✗ Owner（負責人）為必填欄位');
+      return;
+    }
     setSaving(true);
     setSaveMsg('');
     try {
@@ -468,7 +509,7 @@ export default function EntityDetails() {
               {saveMsg}
             </span>
           )}
-          {activeTab === 'team' && (
+          {activeTab === 'team' && canEdit && (
             <>
               <button
                 onClick={handleAutoAssign}
@@ -528,7 +569,10 @@ export default function EntityDetails() {
               <div className="px-6 py-4 bg-gray-50/60 border-b flex items-center justify-between">
                 <div>
                   <h2 className="font-black text-gray-800 text-base">Activity 基本資訊</h2>
-                  <p className="text-xs text-gray-400 mt-0.5">修改後請按右方「Save」儲存變更</p>
+                  {canEdit
+                    ? <p className="text-xs text-gray-400 mt-0.5">修改後請按右方「Save」儲存變更</p>
+                    : <p className="text-xs text-amber-500 font-bold mt-0.5">唯讀檢視 — 僅 Project Team 中 Owner 可編輯</p>
+                  }
                 </div>
                 <div className="flex items-center gap-3">
                   {saveMsg && (
@@ -536,14 +580,16 @@ export default function EntityDetails() {
                       {saveMsg}
                     </span>
                   )}
-                  <button
-                    onClick={handleSave}
-                    disabled={saving}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-all shadow-sm"
-                  >
-                    <Save className="w-4 h-4" />
-                    {saving ? 'Saving...' : 'Save'}
-                  </button>
+                  {canEdit && (
+                    <button
+                      onClick={handleSave}
+                      disabled={saving}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-all shadow-sm"
+                    >
+                      <Save className="w-4 h-4" />
+                      {saving ? 'Saving...' : 'Save'}
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -565,7 +611,7 @@ export default function EntityDetails() {
                           <span className="text-[10px] font-bold">無封面</span>
                         </div>
                       )}
-                      {coverImagePath && (
+                      {coverImagePath && canEdit && (
                         <button
                           onClick={handleDeleteCover}
                           className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 shadow-md transition-all"
@@ -577,24 +623,28 @@ export default function EntityDetails() {
                     </div>
                     <div className="flex flex-col gap-2 justify-center">
                       <p className="text-xs font-black text-gray-500 uppercase tracking-widest">專案封面圖片</p>
-                      <p className="text-xs text-gray-400">建議尺寸 400×400px，最大 5MB，支援 JPG / PNG / WebP</p>
-                      <input
-                        ref={coverInputRef}
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={handleCoverUpload}
-                      />
-                      <button
-                        onClick={() => coverInputRef.current?.click()}
-                        disabled={coverUploading || targetId === 'new'}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-600 text-xs font-bold rounded-lg hover:bg-indigo-100 disabled:opacity-40 transition-all w-fit"
-                      >
-                        <Upload className="w-3.5 h-3.5" />
-                        {coverUploading ? '上傳中...' : coverImagePath ? '更換圖片' : '上傳圖片'}
-                      </button>
-                      {targetId === 'new' && (
-                        <p className="text-[10px] text-amber-500 font-bold">請先儲存專案後再上傳封面圖片</p>
+                      {canEdit && <p className="text-xs text-gray-400">建議尺寸 400×400px，最大 5MB，支援 JPG / PNG / WebP</p>}
+                      {canEdit && (
+                        <>
+                          <input
+                            ref={coverInputRef}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={handleCoverUpload}
+                          />
+                          <button
+                            onClick={() => coverInputRef.current?.click()}
+                            disabled={coverUploading || targetId === 'new'}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-600 text-xs font-bold rounded-lg hover:bg-indigo-100 disabled:opacity-40 transition-all w-fit"
+                          >
+                            <Upload className="w-3.5 h-3.5" />
+                            {coverUploading ? '上傳中...' : coverImagePath ? '更換圖片' : '上傳圖片'}
+                          </button>
+                          {targetId === 'new' && (
+                            <p className="text-[10px] text-amber-500 font-bold">請先儲存專案後再上傳封面圖片</p>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>
@@ -623,21 +673,24 @@ export default function EntityDetails() {
                     type="text"
                     value={form.activityName}
                     onChange={e => setForm({ ...form, activityName: e.target.value })}
-                    disabled={targetType === 'PHASE'}
-                    className={targetType === 'PHASE' ? readonlyCls : inputCls}
+                    disabled={targetType === 'PHASE' || !canEdit}
+                    className={targetType === 'PHASE' || !canEdit ? readonlyCls : inputCls}
                     placeholder="輸入名稱..."
                   />
                 </div>
 
                 {/* Row 3: Owner */}
                 <div>
-                  <label className={labelCls}>Owner (負責人)</label>
+                  <label className={labelCls}>
+                    Owner (負責人){targetType === 'PROJECT' && <span className="text-red-500 ml-0.5">*</span>}
+                  </label>
                   <Select
                     options={allUsers.map(u => ({ value: u.id, label: `${u.name}${u.email ? ` (${u.email})` : ''}` }))}
                     value={allUsers.map(u => ({ value: u.id, label: `${u.name}${u.email ? ` (${u.email})` : ''}` }))
                       .find(o => o.value === Number(form.ownerId)) || null}
                     onChange={o => setForm({ ...form, ownerId: o ? o.value : '' })}
                     isClearable
+                    isDisabled={!canEdit}
                     placeholder="選擇負責人..."
                     styles={{ control: (b) => ({ ...b, borderColor: '#e5e7eb', minHeight: '38px', fontSize: '14px' }) }}
                     menuPosition="fixed"
@@ -656,6 +709,7 @@ export default function EntityDetails() {
                       options={roleOptions}
                       value={selectedRoles}
                       onChange={opts => setForm({ ...form, responsibleRoles: opts.map(o => o.value) })}
+                      isDisabled={!canEdit}
                       placeholder="選擇負責角色..."
                       styles={{ control: (b) => ({ ...b, borderColor: '#e5e7eb', fontSize: '14px' }) }}
                       menuPosition="fixed"
@@ -667,6 +721,7 @@ export default function EntityDetails() {
                       value={form.responsibleRoles.length > 0 ? { value: form.responsibleRoles[0], label: form.responsibleRoles[0] } : null}
                       onChange={o => setForm({ ...form, responsibleRoles: o ? [o.value] : [] })}
                       isClearable
+                      isDisabled={!canEdit}
                       placeholder="選擇負責角色..."
                       styles={{ control: (b) => ({ ...b, borderColor: '#e5e7eb', fontSize: '14px' }) }}
                       menuPosition="fixed"
@@ -683,13 +738,15 @@ export default function EntityDetails() {
                       <label className={labelCls}>開始日期</label>
                       <input type="date" value={form.plannedStartDate}
                         onChange={e => setForm({ ...form, plannedStartDate: e.target.value })}
-                        className={inputCls} />
+                        disabled={!canEdit}
+                        className={!canEdit ? readonlyCls : inputCls} />
                     </div>
                     <div>
                       <label className={labelCls}>結束日期</label>
                       <input type="date" value={form.plannedEndDate}
                         onChange={e => setForm({ ...form, plannedEndDate: e.target.value })}
-                        className={inputCls} />
+                        disabled={!canEdit}
+                        className={!canEdit ? readonlyCls : inputCls} />
                     </div>
                     <div>
                       <label className={labelCls}>Duration (工作天)</label>
@@ -708,13 +765,15 @@ export default function EntityDetails() {
                       <label className={labelCls}>開始日期</label>
                       <input type="date" value={form.actualStartDate}
                         onChange={e => setForm({ ...form, actualStartDate: e.target.value })}
-                        className={inputCls} />
+                        disabled={!canEdit}
+                        className={!canEdit ? readonlyCls : inputCls} />
                     </div>
                     <div>
                       <label className={labelCls}>結束日期</label>
                       <input type="date" value={form.actualEndDate}
                         onChange={e => setForm({ ...form, actualEndDate: e.target.value })}
-                        className={inputCls} />
+                        disabled={!canEdit}
+                        className={!canEdit ? readonlyCls : inputCls} />
                     </div>
                     <div>
                       <label className={labelCls}>Duration (工作天)</label>
@@ -732,14 +791,16 @@ export default function EntityDetails() {
                       <label className={labelCls}>專案描述</label>
                       <textarea value={form.description}
                         onChange={e => setForm({ ...form, description: e.target.value })}
-                        rows={3} className={`${inputCls} resize-none`} placeholder="描述專案目標..." />
+                        disabled={!canEdit}
+                        rows={3} className={`${!canEdit ? readonlyCls : inputCls} resize-none`} placeholder="描述專案目標..." />
                     </div>
                     <div className="space-y-3">
                       <div>
                         <label className={labelCls}>狀態 (Status)</label>
                         <select value={form.status}
                           onChange={e => setForm({ ...form, status: e.target.value })}
-                          className={inputCls}>
+                          disabled={!canEdit}
+                          className={!canEdit ? readonlyCls : inputCls}>
                           <option value="ACTIVE">ACTIVE</option>
                           <option value="ARCHIVED">ARCHIVED</option>
                           <option value="DELETED">DELETED</option>
@@ -749,13 +810,15 @@ export default function EntityDetails() {
                         <label className={labelCls}>預算 (Budget)</label>
                         <input type="number" value={form.budget}
                           onChange={e => setForm({ ...form, budget: e.target.value })}
-                          className={inputCls} placeholder="0" />
+                          disabled={!canEdit}
+                          className={!canEdit ? readonlyCls : inputCls} placeholder="0" />
                       </div>
                       <div>
                         <label className={labelCls}>Is template</label>
                         <select value={form.isTemplate ? 'Yes' : 'No'}
                           onChange={e => setForm({ ...form, isTemplate: e.target.value === 'Yes' })}
-                          className={inputCls}>
+                          disabled={!canEdit}
+                          className={!canEdit ? readonlyCls : inputCls}>
                           <option value="No">No</option>
                           <option value="Yes">Yes</option>
                         </select>
@@ -770,7 +833,8 @@ export default function EntityDetails() {
                     <label className={labelCls}>備注 (Comments)</label>
                     <textarea value={form.description}
                       onChange={e => setForm({ ...form, description: e.target.value })}
-                      rows={3} className={`${inputCls} resize-none`} placeholder="階段備注..." />
+                      disabled={!canEdit}
+                      rows={3} className={`${!canEdit ? readonlyCls : inputCls} resize-none`} placeholder="階段備注..." />
                   </div>
                 )}
 
@@ -779,7 +843,7 @@ export default function EntityDetails() {
                   <div className="grid grid-cols-2 gap-4 border-t pt-4">
                     <div>
                       <label className={labelCls}>任務狀態</label>
-                      <select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })} className={inputCls}>
+                      <select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })} disabled={!canEdit} className={!canEdit ? readonlyCls : inputCls}>
                         <option value="待辦">待辦</option>
                         <option value="進行中">進行中</option>
                         <option value="已完成">已完成</option>
@@ -824,6 +888,7 @@ export default function EntityDetails() {
                               : { value: '', label: '— 未指派 —' }
                           }
                           onChange={o => setRoleMembers(prev => ({ ...prev, [r.roleName]: o?.value ? Number(o.value) : '' }))}
+                          isDisabled={!canEdit}
                           placeholder="選擇成員..."
                           styles={{ control: (b) => ({ ...b, borderColor: '#e5e7eb', fontSize: '14px' }) }}
                           menuPosition="fixed"
@@ -845,13 +910,17 @@ export default function EntityDetails() {
                   <h2 className="font-black text-gray-800 text-base">附件與檔案</h2>
                   <p className="text-xs text-gray-400 mt-0.5">{attachments.length} 個附件</p>
                 </div>
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-indigo-50 text-indigo-700 text-sm font-bold rounded-lg hover:bg-indigo-100 transition-all"
-                >
-                  <Plus className="w-4 h-4" /> 上傳新檔案
-                </button>
-                <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} />
+                {canEdit && (
+                  <>
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-indigo-50 text-indigo-700 text-sm font-bold rounded-lg hover:bg-indigo-100 transition-all"
+                    >
+                      <Plus className="w-4 h-4" /> 上傳新檔案
+                    </button>
+                    <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} />
+                  </>
+                )}
               </div>
               <div className="p-6">
                 {attachments.length === 0 ? (
@@ -878,10 +947,12 @@ export default function EntityDetails() {
                             className="p-2 text-indigo-400 hover:bg-indigo-50 rounded-lg" title="下載">
                             <Download className="w-4 h-4" />
                           </button>
-                          <button onClick={() => handleDeleteAttachment(att.id)}
-                            className="p-2 text-red-400 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all" title="刪除">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {canEdit && (
+                            <button onClick={() => handleDeleteAttachment(att.id)}
+                              className="p-2 text-red-400 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all" title="刪除">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </div>
                     ))}

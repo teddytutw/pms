@@ -13,4 +13,5 @@ public interface ActivityTeamMemberRepository extends JpaRepository<ActivityTeam
     void deleteByTargetTypeAndTargetId(String targetType, String targetId);
 
     List<ActivityTeamMember> findByTargetTypeAndUserIdAndResponsibility(String targetType, Long userId, String responsibility);
+    List<ActivityTeamMember> findByTargetTypeAndUserId(String targetType, Long userId);
 }
