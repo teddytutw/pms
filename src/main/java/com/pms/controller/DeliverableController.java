@@ -2,6 +2,7 @@ package com.pms.controller;
 
 import com.pms.entity.*;
 import com.pms.repository.*;
+import org.springframework.http.HttpStatus;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -20,6 +21,8 @@ public class DeliverableController {
     @Autowired private WorkflowRepository wfRepo;
     @Autowired private WorkflowStepRepository stepRepo;
     @Autowired private ActivityDeliverableRepository adRepo;
+    @Autowired private ProjectRepository projectRepo;
+    @Autowired private TaskRepository taskRepo;
 
     // ─── CRUD ─────────────────────────────────────────────────────────────────
 
@@ -78,6 +81,8 @@ public class DeliverableController {
 
     @DeleteMapping("/{id}")
     public ResponseEntity<?> delete(@PathVariable Long id) {
+        if (adRepo.existsByDeliverableId(id))
+            return ResponseEntity.status(409).body("Deliverable is linked to activities and cannot be deleted.");
         return delRepo.findById(id).map(d -> {
             fvRepo.deleteByDeliverableId(id);
             dwRepo.deleteByDeliverableId(id);
@@ -89,8 +94,45 @@ public class DeliverableController {
     // ─── Where Used ───────────────────────────────────────────────────────────
 
     @GetMapping("/{id}/where-used")
-    public List<ActivityDeliverable> whereUsed(@PathVariable Long id) {
-        return adRepo.findByDeliverableId(id);
+    public List<Map<String, Object>> whereUsed(@PathVariable Long id) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (ActivityDeliverable ad : adRepo.findByDeliverableId(id)) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", ad.getId());
+            m.put("targetType", ad.getTargetType());
+            m.put("targetId", ad.getTargetId());
+            m.put("createdAt", ad.getCreatedAt());
+
+            Long rootProjectId = null;
+            try {
+                if ("PROJECT".equals(ad.getTargetType())) {
+                    rootProjectId = Long.valueOf(ad.getTargetId());
+                } else if ("PHASE".equals(ad.getTargetType())) {
+                    String[] parts = ad.getTargetId().split("-", 2);
+                    rootProjectId = Long.valueOf(parts[0]);
+                    m.put("activityName", parts.length > 1 ? parts[1] : ad.getTargetId());
+                } else if ("TASK".equals(ad.getTargetType())) {
+                    var task = taskRepo.findById(Long.valueOf(ad.getTargetId()));
+                    if (task.isPresent()) {
+                        m.put("activityName", task.get().getTitle());
+                        rootProjectId = task.get().getProjectId();
+                    }
+                }
+            } catch (NumberFormatException ignored) {}
+
+            if (rootProjectId != null) {
+                final Long pid = rootProjectId;
+                m.put("rootProjectId", pid);
+                projectRepo.findById(pid).ifPresent(p -> {
+                    m.put("rootProjectName", p.getName());
+                    // For PROJECT type the activity IS the project
+                    if ("PROJECT".equals(ad.getTargetType()))
+                        m.put("activityName", p.getName());
+                });
+            }
+            result.add(m);
+        }
+        return result;
     }
 
     // ─── Workflow Management ──────────────────────────────────────────────────

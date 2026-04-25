@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft, Paperclip, Users, FileText, Download, Trash2, Plus, Save, ShieldCheck
+  ArrowLeft, Paperclip, Users, FileText, Download, Trash2, Plus, Save, ShieldCheck, Zap,
+  Image, Upload, X
 } from 'lucide-react';
 import Select from 'react-select';
 
@@ -26,8 +27,6 @@ interface Attachment {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────
-const ROLE_KEYS = ['BPM', 'MIPM', 'SQE', 'ENG', 'PUR', 'DQA', 'ERD'] as const;
-type RoleKey = typeof ROLE_KEYS[number];
 
 const calcWorkingDays = (start?: string, end?: string): number => {
   if (!start || !end) return 0;
@@ -65,7 +64,13 @@ export default function EntityDetails() {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
+  const [autoAssigning, setAutoAssigning] = useState(false);
+  const [showAutoAssignConfirm, setShowAutoAssignConfirm] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const coverInputRef = useRef<HTMLInputElement>(null);
+  const [coverImagePath, setCoverImagePath] = useState<string | null>(null);
+  const [coverUploading, setCoverUploading] = useState(false);
+  const [showCoverLightbox, setShowCoverLightbox] = useState(false);
 
   // ── Activity Form State ──────────────────────────────────────
   const [form, setForm] = useState({
@@ -85,12 +90,12 @@ export default function EntityDetails() {
     budget: '',
     status: '',
     currentPhase: '',
+    isTemplate: false,
   });
 
-  // Project members by role (for PROJECT tab)
-  const [roleMembers, setRoleMembers] = useState<Record<RoleKey, number | ''>>({
-    BPM: '', MIPM: '', SQE: '', ENG: '', PUR: '', DQA: '', ERD: '',
-  });
+  // Project members by role — fully dynamic, keyed by role name from /api/responsible-roles
+  const [roleMembers, setRoleMembers] = useState<Record<string, number | ''>>({});
+
 
   // Parent project roles (for single-select in PHASE/TASK)
   const [parentProjectRoles, setParentProjectRoles] = useState<string[]>([]);
@@ -129,6 +134,28 @@ export default function EntityDetails() {
 
   const fetchEntityData = async () => {
     try {
+      if (targetId === 'new') {
+        if (targetType === 'PROJECT') {
+          setForm({
+            activityId: 'new',
+            activityType: 'PROJECT',
+            activityName: '',
+            ownerId: '',
+            responsibleRoles: [],
+            plannedStartDate: '',
+            plannedEndDate: '',
+            actualStartDate: '',
+            actualEndDate: '',
+            description: '',
+            budget: '',
+            status: 'ACTIVE',
+            currentPhase: '',
+            isTemplate: false,
+          });
+        }
+        return;
+      }
+
       if (targetType === 'PROJECT') {
         const res = await fetch((import.meta as any).env.BASE_URL + `api/projects/${targetId}`);
         if (res.ok) {
@@ -147,16 +174,17 @@ export default function EntityDetails() {
             budget: d.budget != null ? String(d.budget) : '',
             status: d.status || 'ACTIVE',
             currentPhase: d.currentPhase || '',
+            isTemplate: d.isTemplate || false,
           });
-          setRoleMembers({
-            BPM:  d.bpmUserId  || '',
-            MIPM: d.mipmUserId || '',
-            SQE:  d.sqeUserId  || '',
-            ENG:  d.engUserId  || '',
-            PUR:  d.purUserId  || '',
-            DQA:  d.dqaUserId  || '',
-            ERD:  d.erdUserId  || '',
-          });
+          setCoverImagePath(d.coverImagePath || null);
+          // Load dynamic role assignments from the new endpoint
+          const rmRes = await fetch((import.meta as any).env.BASE_URL + `api/activity-teams/project-roles?projectId=${targetId}`);
+          if (rmRes.ok) {
+            const rmData: Record<string, number> = await rmRes.json();
+            const mapped: Record<string, number | ''> = {};
+            Object.entries(rmData).forEach(([role, uid]) => { mapped[role] = uid || ''; });
+            setRoleMembers(mapped);
+          }
         }
       } else if (targetType === 'PHASE') {
         // targetId = "projectId-phaseName"
@@ -183,6 +211,7 @@ export default function EntityDetails() {
             budget: '',
             status: d.gateStatus || '',
             currentPhase: '',
+            isTemplate: false,
           });
 
           // Fetch project roles to populate dropdown
@@ -210,6 +239,7 @@ export default function EntityDetails() {
             budget: '',
             status: d.status || '',
             currentPhase: d.phase || '',
+            isTemplate: false,
           });
 
           // Fetch project roles to populate dropdown
@@ -256,18 +286,32 @@ export default function EntityDetails() {
           budget: form.budget ? parseFloat(form.budget) : null,
           status: form.status || 'ACTIVE',
           currentPhase: form.currentPhase,
-          // Role members
-          bpmUserId:  roleMembers.BPM  || null,
-          mipmUserId: roleMembers.MIPM || null,
-          sqeUserId:  roleMembers.SQE  || null,
-          engUserId:  roleMembers.ENG  || null,
-          purUserId:  roleMembers.PUR  || null,
-          dqaUserId:  roleMembers.DQA  || null,
-          erdUserId:  roleMembers.ERD  || null,
+          isTemplate: form.isTemplate,
         };
-        await fetch((import.meta as any).env.BASE_URL + `api/projects/${targetId}`, {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        const method = targetId === 'new' ? 'POST' : 'PUT';
+        const url = targetId === 'new' 
+          ? (import.meta as any).env.BASE_URL + `api/projects` 
+          : (import.meta as any).env.BASE_URL + `api/projects/${targetId}`;
+          
+        const res = await fetch(url, {
+          method: method, headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
+        });
+        if (res.ok) {
+          const respData = await res.json();
+          setSaveMsg('✓ 儲存成功');
+          if (targetId === 'new') {
+            navigate(`/details/PROJECT/${respData.id}`, { replace: true });
+          }
+        } else {
+          setSaveMsg('✗ 儲存失敗');
+        }
+        // Also save dynamic role members via new endpoint
+        const roleBody: Record<string, number | null> = {};
+        Object.entries(roleMembers).forEach(([r, uid]) => { roleBody[r] = uid ? Number(uid) : null; });
+        await fetch((import.meta as any).env.BASE_URL + `api/activity-teams/project-roles?projectId=${targetId}`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(roleBody),
         });
       } else if (targetType === 'PHASE' && phaseDbId) {
         const body = {
@@ -311,6 +355,61 @@ export default function EntityDetails() {
       console.error(e);
     }
     setSaving(false);
+  };
+
+  // ── Auto Assign ─────────────────────────────────────────────
+  const handleAutoAssign = () => {
+    if (targetType !== 'PROJECT') return;
+    setShowAutoAssignConfirm(true);
+  };
+
+  const confirmAutoAssign = async () => {
+    setShowAutoAssignConfirm(false);
+    setAutoAssigning(true);
+    try {
+      const res = await fetch(
+        (import.meta as any).env.BASE_URL + `api/activity-teams/auto-assign?projectId=${targetId}`,
+        { method: 'POST' }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setSaveMsg(`✓ 已自動指派 ${data.assigned} 筆成員至 Activities`);
+        setTimeout(() => setSaveMsg(''), 4000);
+      } else {
+        const errText = await res.text();
+        console.error('Auto assign error:', errText);
+        setSaveMsg('✗ 自動指派失敗');
+      }
+    } catch (e) {
+      setSaveMsg('✗ 自動指派失敗');
+      console.error(e);
+    }
+    setAutoAssigning(false);
+  };
+
+  // ── Cover Image ───────────────────────────────────────────────
+  const BASE_URL = (import.meta as any).env.BASE_URL;
+
+  const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files?.length || targetId === 'new') return;
+    setCoverUploading(true);
+    const formData = new FormData();
+    formData.append('file', e.target.files[0]);
+    const res = await fetch(BASE_URL + `api/projects/${targetId}/cover`, { method: 'POST', body: formData });
+    if (res.ok) {
+      const updated = await res.json();
+      setCoverImagePath(updated.coverImagePath || null);
+    } else {
+      alert('封面圖片上傳失敗');
+    }
+    setCoverUploading(false);
+    if (coverInputRef.current) coverInputRef.current.value = '';
+  };
+
+  const handleDeleteCover = async () => {
+    if (!confirm('確定移除封面圖片？') || targetId === 'new') return;
+    const res = await fetch(BASE_URL + `api/projects/${targetId}/cover`, { method: 'DELETE' });
+    if (res.ok) setCoverImagePath(null);
   };
 
   // ── Upload/Delete Attachment ──────────────────────────────────
@@ -364,30 +463,31 @@ export default function EntityDetails() {
         </h1>
         {/* Save button in header */}
         <div className="ml-auto flex items-center gap-3">
-          {saveMsg && (
+          {saveMsg && activeTab !== 'details' && (
             <span className={`text-sm font-bold ${saveMsg.startsWith('✓') ? 'text-green-600' : 'text-red-500'}`}>
               {saveMsg}
             </span>
           )}
-          {activeTab === 'details' && (
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-all shadow-sm"
-            >
-              <Save className="w-4 h-4" />
-              {saving ? '儲存中...' : '儲存變更'}
-            </button>
-          )}
           {activeTab === 'team' && (
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-all shadow-sm"
-            >
-              <Save className="w-4 h-4" />
-              {saving ? '儲存中...' : '儲存成員'}
-            </button>
+            <>
+              <button
+                onClick={handleAutoAssign}
+                disabled={autoAssigning || saving}
+                className="flex items-center gap-1.5 px-4 py-2 bg-amber-500 text-white text-sm font-bold rounded-lg hover:bg-amber-600 disabled:opacity-50 transition-all shadow-sm"
+                title="依專案成員指派，自動將各角色人員加入對應 Activities 的 Teams（Responsibility = Owner）"
+              >
+                <Zap className="w-4 h-4" />
+                {autoAssigning ? '指派中...' : 'Auto Assign to Activities'}
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-all shadow-sm"
+              >
+                <Save className="w-4 h-4" />
+                {saving ? '儲存中...' : '儲存成員'}
+              </button>
+            </>
           )}
         </div>
       </header>
@@ -425,12 +525,81 @@ export default function EntityDetails() {
           {/* ═══ DETAILS TAB ═══ */}
           {activeTab === 'details' && (
             <div className="bg-white border rounded-2xl shadow-sm overflow-hidden">
-              <div className="px-6 py-4 bg-gray-50/60 border-b">
-                <h2 className="font-black text-gray-800 text-base">Activity 基本資訊</h2>
-                <p className="text-xs text-gray-400 mt-0.5">修改後請按右上角「儲存變更」</p>
+              <div className="px-6 py-4 bg-gray-50/60 border-b flex items-center justify-between">
+                <div>
+                  <h2 className="font-black text-gray-800 text-base">Activity 基本資訊</h2>
+                  <p className="text-xs text-gray-400 mt-0.5">修改後請按右方「Save」儲存變更</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  {saveMsg && (
+                    <span className={`text-sm font-bold ${saveMsg.startsWith('✓') ? 'text-green-600' : 'text-red-500'}`}>
+                      {saveMsg}
+                    </span>
+                  )}
+                  <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-all shadow-sm"
+                  >
+                    <Save className="w-4 h-4" />
+                    {saving ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
               </div>
 
               <div className="p-6 space-y-6">
+                {/* Cover Image (PROJECT only) */}
+                {targetType === 'PROJECT' && (
+                  <div className="flex items-start gap-5 pb-5 border-b">
+                    <div className="relative shrink-0">
+                      {coverImagePath && targetId !== 'new' ? (
+                        <img
+                          src={BASE_URL + `api/projects/${targetId}/cover`}
+                          alt="封面"
+                          onClick={() => setShowCoverLightbox(true)}
+                          className="w-28 h-28 rounded-2xl object-cover border border-gray-200 shadow-sm cursor-zoom-in hover:opacity-90 transition-opacity"
+                        />
+                      ) : (
+                        <div className="w-28 h-28 rounded-2xl bg-indigo-50 border-2 border-dashed border-indigo-200 flex flex-col items-center justify-center text-indigo-300">
+                          <Image className="w-8 h-8 mb-1" />
+                          <span className="text-[10px] font-bold">無封面</span>
+                        </div>
+                      )}
+                      {coverImagePath && (
+                        <button
+                          onClick={handleDeleteCover}
+                          className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 shadow-md transition-all"
+                          title="移除封面圖片"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex flex-col gap-2 justify-center">
+                      <p className="text-xs font-black text-gray-500 uppercase tracking-widest">專案封面圖片</p>
+                      <p className="text-xs text-gray-400">建議尺寸 400×400px，最大 5MB，支援 JPG / PNG / WebP</p>
+                      <input
+                        ref={coverInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleCoverUpload}
+                      />
+                      <button
+                        onClick={() => coverInputRef.current?.click()}
+                        disabled={coverUploading || targetId === 'new'}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-600 text-xs font-bold rounded-lg hover:bg-indigo-100 disabled:opacity-40 transition-all w-fit"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        {coverUploading ? '上傳中...' : coverImagePath ? '更換圖片' : '上傳圖片'}
+                      </button>
+                      {targetId === 'new' && (
+                        <p className="text-[10px] text-amber-500 font-bold">請先儲存專案後再上傳封面圖片</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {/* Row 1: ID + Type (read-only) */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -582,6 +751,15 @@ export default function EntityDetails() {
                           onChange={e => setForm({ ...form, budget: e.target.value })}
                           className={inputCls} placeholder="0" />
                       </div>
+                      <div>
+                        <label className={labelCls}>Is template</label>
+                        <select value={form.isTemplate ? 'Yes' : 'No'}
+                          onChange={e => setForm({ ...form, isTemplate: e.target.value === 'Yes' })}
+                          className={inputCls}>
+                          <option value="No">No</option>
+                          <option value="Yes">Yes</option>
+                        </select>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -626,28 +804,35 @@ export default function EntityDetails() {
                 <p className="text-xs text-gray-400 mt-0.5">依角色指派專案 Team Member，修改後請按右上角「儲存成員」</p>
               </div>
               <div className="p-6 space-y-4">
-                {ROLE_KEYS.map(role => (
-                  <div key={role} className="grid grid-cols-4 items-center gap-4 p-3 rounded-xl border border-gray-100 hover:bg-gray-50 transition-all">
-                    <div className="flex items-center gap-2">
-                      <span className="w-14 text-center py-1 rounded-lg bg-indigo-50 text-indigo-700 text-xs font-black">{role}</span>
-                    </div>
-                    <div className="col-span-3">
-                      <Select
-                        options={[{ value: '', label: '— 未指派 —' }, ...allUsers.map(u => ({ value: String(u.id), label: u.name }))]}
-                        value={
-                          roleMembers[role]
-                            ? { value: String(roleMembers[role]), label: allUsers.find(u => u.id === Number(roleMembers[role]))?.name || '—' }
-                            : { value: '', label: '— 未指派 —' }
-                        }
-                        onChange={o => setRoleMembers(prev => ({ ...prev, [role]: o?.value ? Number(o.value) : '' }))}
-                        placeholder="選擇成員..."
-                        styles={{ control: (b) => ({ ...b, borderColor: '#e5e7eb', fontSize: '14px' }) }}
-                        menuPosition="fixed"
-                        menuPlacement="auto"
-                      />
-                    </div>
+                {roles.length === 0 ? (
+                  <div className="text-center py-10 text-gray-300">
+                    <p className="font-bold text-sm text-gray-400">尚未定義任何角色</p>
+                    <p className="text-xs mt-1">請先至「負責角色定義維護」新增角色</p>
                   </div>
-                ))}
+                ) : (
+                  roles.map(r => (
+                    <div key={r.roleName} className="grid grid-cols-4 items-center gap-4 p-3 rounded-xl border border-gray-100 hover:bg-gray-50 transition-all">
+                      <div className="flex items-center gap-2">
+                        <span className="w-16 text-center py-1 rounded-lg bg-indigo-50 text-indigo-700 text-xs font-black truncate" title={r.roleName}>{r.roleName}</span>
+                      </div>
+                      <div className="col-span-3">
+                        <Select
+                          options={[{ value: '', label: '— 未指派 —' }, ...allUsers.map(u => ({ value: String(u.id), label: u.name }))]}
+                          value={
+                            roleMembers[r.roleName]
+                              ? { value: String(roleMembers[r.roleName]), label: allUsers.find(u => u.id === Number(roleMembers[r.roleName]))?.name || '—' }
+                              : { value: '', label: '— 未指派 —' }
+                          }
+                          onChange={o => setRoleMembers(prev => ({ ...prev, [r.roleName]: o?.value ? Number(o.value) : '' }))}
+                          placeholder="選擇成員..."
+                          styles={{ control: (b) => ({ ...b, borderColor: '#e5e7eb', fontSize: '14px' }) }}
+                          menuPosition="fixed"
+                          menuPlacement="auto"
+                        />
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           )}
@@ -707,6 +892,64 @@ export default function EntityDetails() {
           )}
         </div>
       </main>
+
+      {/* ── Auto Assign Confirm Modal ── */}
+      {showAutoAssignConfirm && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowAutoAssignConfirm(false)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center shrink-0">
+                <Zap className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="font-black text-gray-900">Auto Assign to Activities</h3>
+                <p className="text-xs text-gray-400">確認執行自動指派</p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-600 leading-relaxed bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">
+              將依「專案成員指派」中各角色的人員，自動加入本專案所有 Activities 的 Teams 欄位，並設定 Responsibility 為 <strong>Owner</strong>。
+              <br /><span className="text-gray-400 text-xs mt-1 block">※ 已加入者不會重複新增。</span>
+            </p>
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={() => setShowAutoAssignConfirm(false)}
+                className="flex-1 py-2.5 text-gray-500 font-bold text-sm hover:bg-gray-100 rounded-xl transition-all"
+              >
+                取消
+              </button>
+              <button
+                onClick={confirmAutoAssign}
+                className="flex-1 py-2.5 bg-amber-500 text-white font-bold text-sm rounded-xl hover:bg-amber-600 shadow-lg shadow-amber-100 transition-all flex items-center justify-center gap-2"
+              >
+                <Zap className="w-4 h-4" /> 確認執行
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cover image lightbox */}
+      {showCoverLightbox && coverImagePath && (
+        <div
+          className="fixed inset-0 z-[9999] bg-black/80 flex items-center justify-center"
+          onClick={() => setShowCoverLightbox(false)}
+        >
+          <button
+            className="absolute top-4 right-4 w-9 h-9 bg-white/20 hover:bg-white/40 rounded-full flex items-center justify-center text-white transition-all"
+            onClick={() => setShowCoverLightbox(false)}
+          >
+            <X className="w-5 h-5" />
+          </button>
+          <img
+            src={BASE_URL + `api/projects/${targetId}/cover`}
+            alt="封面圖片"
+            className="max-w-[90vw] max-h-[90vh] rounded-2xl shadow-2xl object-contain"
+            onClick={e => e.stopPropagation()}
+          />
+        </div>
+      )}
+
     </div>
   );
 }

@@ -73,6 +73,12 @@ public class Project {
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
+    @Column(name = "is_template")
+    private Boolean isTemplate = false;
+
+    @Column(name = "cover_image_path", length = 500)
+    private String coverImagePath;
+
     @Transient
     private String statusIndicator; // BLUE, GREEN, YELLOW, RED
 
@@ -138,4 +144,8 @@ public class Project {
     public void setProjectYear(String projectYear) { this.projectYear = projectYear; }
     public String getExecutionStatus() { return executionStatus; }
     public void setExecutionStatus(String executionStatus) { this.executionStatus = executionStatus; }
+    public Boolean getIsTemplate() { return isTemplate != null ? isTemplate : false; }
+    public void setIsTemplate(Boolean isTemplate) { this.isTemplate = isTemplate; }
+    public String getCoverImagePath() { return coverImagePath; }
+    public void setCoverImagePath(String coverImagePath) { this.coverImagePath = coverImagePath; }
 }

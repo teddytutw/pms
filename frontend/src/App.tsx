@@ -6,6 +6,9 @@ import TeamManagement from './pages/TeamManagement';
 import ProjectHub from './pages/ProjectHub';
 import RoleManagement from './pages/RoleManagement';
 import Settings from './pages/Settings';
+import WorkflowManagement from './pages/WorkflowManagement';
+import DeliverableTypeManagement from './pages/DeliverableTypeManagement';
+import DeliverableManagement from './pages/DeliverableManagement';
 
 // 簡單的路由守衛組件
 const PrivateRoute = ({ children }: { children: JSX.Element }) => {
@@ -75,6 +78,30 @@ function App() {
               <Settings />
             </PrivateRoute>
           } 
+        />
+        <Route
+          path="/workflows"
+          element={
+            <PrivateRoute>
+              <WorkflowManagement />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/deliverable-types"
+          element={
+            <PrivateRoute>
+              <DeliverableTypeManagement />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/deliverables"
+          element={
+            <PrivateRoute>
+              <DeliverableManagement />
+            </PrivateRoute>
+          }
         />
       </Routes>
     </Router>

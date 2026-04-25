@@ -64,7 +64,7 @@ export default function Login() {
           </div>
 
           <h2 className="text-2xl font-bold text-center text-gray-900 mb-2">Project Management System</h2>
-          <p className="text-gray-500 text-center mb-8">請登入您的帳號以開始協作</p>
+          <p className="text-gray-500 text-center mb-8">請登入您的帳號開始協作</p>
 
           {error && (
             <div className="mb-6 p-4 bg-red-50 border border-red-100 text-red-600 text-sm rounded-xl">

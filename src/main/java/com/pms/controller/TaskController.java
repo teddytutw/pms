@@ -3,14 +3,16 @@ package com.pms.controller;
 import com.pms.entity.Task;
 import com.pms.entity.ProjectPhaseGate;
 import com.pms.repository.TaskRepository;
+import com.pms.repository.ProjectRepository;
 import com.pms.repository.ProjectPhaseGateRepository;
+import com.pms.repository.ActivityTeamMemberRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @RestController
@@ -22,7 +24,84 @@ public class TaskController {
     private TaskRepository taskRepository;
 
     @Autowired
+    private ProjectRepository projectRepository;
+
+    @Autowired
+    private ActivityTeamMemberRepository activityTeamMemberRepository;
+
+    @Autowired
     private com.pms.service.StatusService statusService;
+
+    /**
+     * GET /api/tasks/todo
+     * Returns all non-completed tasks that either:
+     *   1. Start within the next 30 days (upcoming), OR
+     *   2. Already started (plannedStartDate <= today) but not yet completed.
+     * Each item is enriched with projectName and projectId for hyperlinks.
+     */
+    @GetMapping("/todo")
+    public List<Map<String, Object>> getTodoTasks(@RequestParam(required = false) Long userId) {
+        LocalDate today = LocalDate.now();
+        LocalDate limit  = today.plusDays(30);
+
+        // Build projectId -> projectName lookup and track template projects
+        Map<Long, String> projectNames = new HashMap<>();
+        Set<Long> templateProjectIds = new HashSet<>();
+        projectRepository.findAll().forEach(p -> {
+            projectNames.put(p.getId(), p.getName());
+            if (p.getIsTemplate()) {
+                templateProjectIds.add(p.getId());
+            }
+        });
+
+        Set<Long> ownerTaskIds = null;
+        if (userId != null) {
+            ownerTaskIds = activityTeamMemberRepository.findByTargetTypeAndUserIdAndResponsibility("TASK", userId, "Owner")
+                .stream()
+                .map(m -> {
+                    try { return Long.parseLong(m.getTargetId()); } catch (Exception e) { return null; }
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        }
+
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Task task : taskRepository.findAll()) {
+            if (task.getProjectId() != null && templateProjectIds.contains(task.getProjectId())) {
+                continue; // Skip tasks belonging to template projects
+            }
+
+            if (userId != null && (ownerTaskIds == null || !ownerTaskIds.contains(task.getId()))) {
+                continue; // Only show tasks where user is the Owner
+            }
+
+            // Skip completed tasks
+            String status = task.getStatus();
+            if ("已完成".equals(status) || "DONE".equals(status) || "COMPLETED".equals(status)) continue;
+
+            String rawStart = task.getPlannedStartDate();
+            if (rawStart == null || rawStart.isBlank()) continue; // skip tasks with no date
+
+            try {
+                LocalDate startDate = LocalDate.parse(rawStart.length() > 10 ? rawStart.substring(0, 10) : rawStart);
+                // Include if: startDate <= today+30  (upcoming or already started but not done)
+                if (!startDate.isAfter(limit)) {
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    item.put("id", task.getId());
+                    item.put("title", task.getTitle());
+                    item.put("plannedStartDate", task.getPlannedStartDate());
+                    item.put("plannedEndDate", task.getPlannedEndDate());
+                    item.put("status", status);
+                    item.put("projectId", task.getProjectId());
+                    item.put("projectName", projectNames.getOrDefault(task.getProjectId(), "—"));
+                    result.add(item);
+                }
+            } catch (Exception ignored) {}
+        }
+        // Sort by plannedStartDate ascending
+        result.sort(Comparator.comparing(m -> String.valueOf(m.getOrDefault("plannedStartDate", ""))));
+        return result;
+    }
 
     @GetMapping("/project/{projectId}")
     public List<Task> getTasksByProject(@PathVariable long projectId) {
@@ -195,7 +274,10 @@ public class TaskController {
                 })
                 .collect(Collectors.toList());
 
-            int idx = siblings.indexOf(task);
+            int idx = -1;
+            for (int i = 0; i < siblings.size(); i++) {
+                if (siblings.get(i).getId().equals(task.getId())) { idx = i; break; }
+            }
             if (idx == -1) return ResponseEntity.ok(task);
 
             // 1. Indent / Outdent

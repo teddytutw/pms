@@ -1,14 +1,15 @@
-﻿import { useState, useEffect, useRef, useMemo } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { useLocation, useSearchParams, useNavigate } from 'react-router-dom';
 import Select from 'react-select';
 import { Gantt, Task as GanttTask, ViewMode } from 'gantt-task-react';
 import 'gantt-task-react/dist/index.css';
 import WBSView from '../components/WBSView';
+import { motion, AnimatePresence } from 'framer-motion';
 
 import {
   Search,
-  ChevronLeft, ChevronRight, ArrowUp, ArrowDown, CalendarClock, Download,
-  Folder, FileSpreadsheet
+  ChevronLeft, ChevronRight, ArrowUp, ArrowDown, CalendarClock,
+  Folder, Edit3, Plus, Save
 } from 'lucide-react';
 import Sidebar from '../components/Sidebar';
 import ProjectSelectorModal from '../components/ProjectSelectorModal';
@@ -18,6 +19,8 @@ import TaskDetailView from '../components/TaskDetailView';
 export default function Dashboard() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   // Resize state (Initial ratio for Detail mode: WBS is 66.66% of total)
   const [wbsWidthPercentage, setWbsWidthPercentage] = useState(66.66);
@@ -25,16 +28,23 @@ export default function Dashboard() {
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Modal state
+  const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isCreateTaskModalOpen, setIsCreateTaskModalOpen] = useState(false);
   const [isRescheduleModalOpen, setIsRescheduleModalOpen] = useState(false);
   const [rescheduleMode, setRescheduleMode] = useState<'start' | 'end'>('start');
   const [rescheduleDate, setRescheduleDate] = useState('');
 
+  // Save As
+  const [isSaveAsModalOpen, setIsSaveAsModalOpen] = useState(false);
+  const [saveAsData, setSaveAsData] = useState({ name: '', description: '', isTemplate: false, plannedStartDate: '', plannedEndDate: '' });
+  const [saveAsMode, setSaveAsMode] = useState<'start' | 'end'>('start');
+  const [saveAsLoading, setSaveAsLoading] = useState(false);
+
   // View & selection
   const [ganttViewMode, setGanttViewMode] = useState<ViewMode>(ViewMode.Week);
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
-  const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
-  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [detailRefreshKey, setDetailRefreshKey] = useState(0);
   const [rightPaneMode, setRightPaneMode] = useState<'detail' | 'gantt' | 'both'>('detail');
 
   // Auto-adjust layout based on requested ratios
@@ -142,6 +152,15 @@ export default function Dashboard() {
     }
   }, [selectedProjectId]);
 
+  // Support ?projectId=X URL param (used by Where Used navigation from DeliverableModal)
+  useEffect(() => {
+    const pid = searchParams.get('projectId');
+    if (pid && projects.length > 0) {
+      const numPid = parseInt(pid, 10);
+      if (!isNaN(numPid) && numPid !== selectedProjectId) setSelectedProjectId(numPid);
+    }
+  }, [searchParams, projects]);
+
   const handleExportProject = async () => {
     if (!selectedProjectId) return;
     try {
@@ -159,6 +178,90 @@ export default function Dashboard() {
         window.URL.revokeObjectURL(url);
       }
     } catch (err) { console.error(err); }
+  };
+
+  const handleSaveAs = async () => {
+    if (!saveAsData.name || !selectedProjectId) return;
+    setSaveAsLoading(true);
+    try {
+      const res = await fetch((import.meta as any).env.BASE_URL + `api/projects/${selectedProjectId}/duplicate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(saveAsData)
+      });
+      if (res.ok) {
+        const newData = await res.json();
+        setIsSaveAsModalOpen(false);
+        navigate(`/details/PROJECT/${newData.id}`);
+      } else {
+        alert('Save As failed');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Save As error');
+    } finally {
+      setSaveAsLoading(false);
+    }
+  };
+
+  const handleReschedule = async () => {
+    if (!currentProject || !rescheduleDate || !selectedProjectId) return;
+    try {
+      const taskRes = await fetch((import.meta as any).env.BASE_URL + `api/tasks/project/${selectedProjectId}`);
+      if (!taskRes.ok) throw new Error('Failed to fetch tasks');
+      const projectTasks = await taskRes.json();
+
+      let anchorDate: Date;
+      if (rescheduleMode === 'start') {
+        anchorDate = currentProject.plannedStartDate ? new Date(currentProject.plannedStartDate) : new Date();
+      } else {
+        anchorDate = currentProject.plannedEndDate ? new Date(currentProject.plannedEndDate) : new Date();
+      }
+      const newAnchor = new Date(rescheduleDate);
+      const shiftMs = newAnchor.getTime() - anchorDate.getTime();
+      const shiftDays = Math.round(shiftMs / 86400000);
+
+      const addWorkingDays = (dateStr: string, days: number): string => {
+        const d = new Date(dateStr);
+        let remaining = Math.abs(days);
+        const step = days >= 0 ? 1 : -1;
+        while (remaining > 0) {
+          d.setDate(d.getDate() + step);
+          if (d.getDay() !== 0 && d.getDay() !== 6) remaining--;
+        }
+        return d.toISOString().split('T')[0];
+      };
+
+      const validTasks = projectTasks.filter((t: any) => t.plannedStartDate && t.plannedEndDate);
+      const updates = validTasks.map((t: any) => ({
+        id: t.id,
+        plannedStartDate: addWorkingDays(t.plannedStartDate, shiftDays),
+        plannedEndDate: addWorkingDays(t.plannedEndDate, shiftDays),
+      }));
+
+      const newProjStart = currentProject.plannedStartDate ? addWorkingDays(currentProject.plannedStartDate, shiftDays) : '';
+      const newProjEnd = currentProject.plannedEndDate ? addWorkingDays(currentProject.plannedEndDate, shiftDays) : '';
+
+      await Promise.all([
+        ...updates.map((u: any) => fetch((import.meta as any).env.BASE_URL + `api/tasks/${u.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ plannedStartDate: u.plannedStartDate, plannedEndDate: u.plannedEndDate }),
+        })),
+        fetch((import.meta as any).env.BASE_URL + `api/projects/${selectedProjectId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ plannedStartDate: newProjStart, plannedEndDate: newProjEnd }),
+        })
+      ]);
+
+      setIsRescheduleModalOpen(false);
+      setRescheduleDate('');
+      fetchProjectDetails(selectedProjectId);
+    } catch (err) {
+      console.error(err);
+      alert('Reschedule failed');
+    }
   };
 
   const handleCreateTask = async () => {
@@ -197,7 +300,7 @@ export default function Dashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phase: newPhase, projectId: newProjectId })
       });
-      if (res.ok && selectedProjectId) fetchProjectDetails(selectedProjectId);
+      if (res.ok && selectedProjectId) { fetchProjectDetails(selectedProjectId); setDetailRefreshKey(k => k + 1); }
     } catch (err) { console.error(err); }
   };
 
@@ -260,24 +363,11 @@ export default function Dashboard() {
     if (!selectedTaskId) return;
     try {
       const res = await fetch((import.meta as any).env.BASE_URL + `api/tasks/${selectedTaskId}/adjust?direction=${direction}`, { method: 'POST' });
-      if (res.ok && selectedProjectId) fetchProjectDetails(selectedProjectId);
+      if (res.ok && selectedProjectId) { fetchProjectDetails(selectedProjectId); setDetailRefreshKey(k => k + 1); }
     } catch (err) { console.error(err); }
   };
 
-  const handleReschedule = async () => {
-    if (!selectedProjectId || !rescheduleDate) return;
-    try {
-      const res = await fetch((import.meta as any).env.BASE_URL + `api/projects/${selectedProjectId}/reschedule`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targetDate: rescheduleDate, mode: rescheduleMode })
-      });
-      if (res.ok) {
-        setIsRescheduleModalOpen(false);
-        fetchProjectDetails(selectedProjectId);
-      }
-    } catch (err) { console.error(err); }
-  };
+
 
   const ganttTasks: GanttTask[] = useMemo(() => {
     const list: GanttTask[] = [];
@@ -417,7 +507,7 @@ export default function Dashboard() {
                </div>
              </div>
              
-             <div className="flex items-center gap-4">
+             <div className="flex items-center gap-3">
                 <button 
                   onClick={() => setIsProjectModalOpen(true)}
                   className="flex items-center gap-2 px-4 py-2 bg-slate-50 border border-slate-100 rounded-xl text-[11px] font-black text-slate-600 hover:bg-slate-100 transition-all font-mono uppercase tracking-tighter"
@@ -425,9 +515,115 @@ export default function Dashboard() {
                   <Search className="w-4 h-4" /> SELECT PROJECT
                 </button>
                 <div className="w-[1px] h-6 bg-gray-100" />
-                <button disabled={!selectedProjectId} onClick={() => setIsRescheduleModalOpen(true)} className="p-2 text-amber-500 hover:bg-amber-50 rounded-xl transition-all disabled:opacity-20"><CalendarClock className="w-5 h-5" /></button>
-                <button disabled={!selectedProjectId} onClick={handleExportProject} className="p-2 text-indigo-500 hover:bg-indigo-50 rounded-xl transition-all disabled:opacity-20"><Download className="w-5 h-5" /></button>
-                <button disabled={!selectedProjectId} onClick={() => setIsImportModalOpen(true)} className="p-2 text-emerald-500 hover:bg-emerald-50 rounded-xl transition-all disabled:opacity-20"><FileSpreadsheet className="w-5 h-5" /></button>
+
+                {/* Icon-only action buttons with tooltips */}
+                <div className="flex items-center gap-1.5">
+                  {/* Create Project */}
+                  <div className="relative group/btn">
+                    <button
+                      onClick={() => navigate('/details/PROJECT/new')}
+                      className="w-9 h-9 flex items-center justify-center bg-white border border-slate-200 text-indigo-600 rounded-xl hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-2 py-1 bg-slate-800 text-white text-[10px] font-bold rounded-lg whitespace-nowrap opacity-0 group-hover/btn:opacity-100 transition-opacity pointer-events-none z-50">
+                      Create project
+                      <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-800 rotate-45" />
+                    </div>
+                  </div>
+
+                  {/* Maintain Project */}
+                  <div className="relative group/btn">
+                    <button
+                      disabled={!selectedProjectId}
+                      onClick={() => navigate(`/details/PROJECT/${selectedProjectId}`)}
+                      className="w-9 h-9 flex items-center justify-center bg-white border border-slate-200 text-violet-600 rounded-xl hover:bg-violet-50 hover:border-violet-300 transition-all shadow-sm disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      <Edit3 className="w-4 h-4" />
+                    </button>
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-2 py-1 bg-slate-800 text-white text-[10px] font-bold rounded-lg whitespace-nowrap opacity-0 group-hover/btn:opacity-100 transition-opacity pointer-events-none z-50">
+                      Maintain project
+                      <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-800 rotate-45" />
+                    </div>
+                  </div>
+
+                  {/* Save As Project */}
+                  <div className="relative group/btn">
+                    <button
+                      disabled={!selectedProjectId}
+                      onClick={() => {
+                        if (currentProject) {
+                          setSaveAsData({
+                            name: currentProject.name + ' - Copy',
+                            description: currentProject.description || '',
+                            isTemplate: false,
+                            plannedStartDate: currentProject.plannedStartDate ? currentProject.plannedStartDate.substring(0, 10) : '',
+                            plannedEndDate: currentProject.plannedEndDate ? currentProject.plannedEndDate.substring(0, 10) : ''
+                          });
+                          setIsSaveAsModalOpen(true);
+                        }
+                      }}
+                      className="w-9 h-9 flex items-center justify-center bg-white border border-slate-200 text-emerald-500 rounded-xl hover:bg-emerald-50 hover:border-emerald-300 transition-all shadow-sm disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      <Save className="w-4 h-4" />
+                    </button>
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-2 py-1 bg-slate-800 text-white text-[10px] font-bold rounded-lg whitespace-nowrap opacity-0 group-hover/btn:opacity-100 transition-opacity pointer-events-none z-50">
+                      Save as project
+                      <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-800 rotate-45" />
+                    </div>
+                  </div>
+
+                  {/* Reschedule */}
+                  <div className="relative group/btn">
+                    <button
+                      disabled={!selectedProjectId}
+                      onClick={() => {
+                        if (currentProject) {
+                          setRescheduleDate(currentProject.plannedStartDate?.split('T')[0] || '');
+                          setRescheduleMode('start');
+                          setIsRescheduleModalOpen(true);
+                        }
+                      }}
+                      className="w-9 h-9 flex items-center justify-center bg-white border border-slate-200 text-amber-500 rounded-xl hover:bg-amber-50 hover:border-amber-300 transition-all shadow-sm disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      <CalendarClock className="w-4 h-4" />
+                    </button>
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-2 py-1 bg-slate-800 text-white text-[10px] font-bold rounded-lg whitespace-nowrap opacity-0 group-hover/btn:opacity-100 transition-opacity pointer-events-none z-50">
+                      Reschedule
+                      <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-800 rotate-45" />
+                    </div>
+                  </div>
+
+                  {/* Export WBS to xml */}
+                  <div className="relative group/btn">
+                    <button
+                      disabled={!selectedProjectId}
+                      onClick={handleExportProject}
+                      className="w-9 h-9 flex items-center justify-center bg-white border border-slate-200 rounded-xl hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm disabled:opacity-30 disabled:cursor-not-allowed overflow-hidden"
+                    >
+                      <img src="export.png" alt="Export XML" className="w-6 h-6 object-contain" />
+                    </button>
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-2 py-1 bg-slate-800 text-white text-[10px] font-bold rounded-lg whitespace-nowrap opacity-0 group-hover/btn:opacity-100 transition-opacity pointer-events-none z-50">
+                      Export WBS to xml
+                      <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-800 rotate-45" />
+                    </div>
+                  </div>
+
+                  {/* Import WBS from Excel */}
+                  <div className="relative group/btn">
+                    <button
+                      disabled={!selectedProjectId}
+                      onClick={() => setIsImportModalOpen(true)}
+                      className="w-9 h-9 flex items-center justify-center bg-white border border-slate-200 rounded-xl hover:bg-emerald-50 hover:border-emerald-300 transition-all shadow-sm disabled:opacity-30 disabled:cursor-not-allowed overflow-hidden"
+                    >
+                      <img src="import.png" alt="Import Excel" className="w-6 h-6 object-contain" />
+                    </button>
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-2 py-1 bg-slate-800 text-white text-[10px] font-bold rounded-lg whitespace-nowrap opacity-0 group-hover/btn:opacity-100 transition-opacity pointer-events-none z-50">
+                      Import WBS from Excel
+                      <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-800 rotate-45" />
+                    </div>
+                  </div>
+                </div>
              </div>
           </header>
 
@@ -495,9 +691,10 @@ export default function Dashboard() {
                 <div style={{ width: `${100 - wbsWidthPercentage}%` }} className="bg-white border-l border-gray-100 flex overflow-hidden">
                    {(rightPaneMode === 'detail' || rightPaneMode === 'both') && (
                      <div className={`${rightPaneMode === 'both' ? 'w-1/2 border-r border-gray-100' : 'w-full'} h-full flex flex-col`}>
-                        <TaskDetailView allUsers={users} allRoles={roles} 
-                          targetType={selectedItem.type} targetId={selectedItem.id} 
+                        <TaskDetailView allUsers={users} allRoles={roles}
+                          targetType={selectedItem.type} targetId={selectedItem.id}
                           onUpdateSuccess={() => selectedProjectId && fetchProjectDetails(selectedProjectId)}
+                          refreshKey={detailRefreshKey}
                         />
                      </div>
                    )}
@@ -545,6 +742,79 @@ export default function Dashboard() {
 
       <ProjectSelectorModal isOpen={isProjectModalOpen} onClose={() => setIsProjectModalOpen(false)} projects={projects} onSelect={(id) => { setSelectedProjectId(id); fetchProjectDetails(id); sessionStorage.setItem('dashboard_selectedProjectId', String(id)); }} currentProjectId={selectedProjectId} />
       {currentProject && <ImportModal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} projectId={currentProject.id} projectName={currentProject.name} onImportSuccess={() => fetchProjectDetails(currentProject.id)} />}
+
+      <AnimatePresence>
+        {isSaveAsModalOpen && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsSaveAsModalOpen(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative bg-white rounded-3xl p-8 max-w-lg w-full shadow-2xl space-y-6">
+              <h3 className="text-xl font-black text-slate-900">Save As Project</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Project Name</label>
+                  <input type="text" value={saveAsData.name} onChange={e => setSaveAsData(d => ({ ...d, name: e.target.value }))} className="w-full px-4 py-3 bg-slate-50 border-2 border-transparent focus:border-indigo-600 rounded-xl outline-none font-bold text-slate-900" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Description</label>
+                  <textarea rows={3} value={saveAsData.description} onChange={e => setSaveAsData(d => ({ ...d, description: e.target.value }))} className="w-full px-4 py-3 bg-slate-50 border-2 border-transparent focus:border-indigo-600 rounded-xl outline-none font-bold text-slate-900 resize-none" />
+                </div>
+                <div className="space-y-4 pt-2">
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">Date Anchor Type</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button 
+                      onClick={() => {
+                         setSaveAsMode('start');
+                         setSaveAsData(d => ({ ...d, plannedStartDate: d.plannedStartDate || d.plannedEndDate || '', plannedEndDate: '' }));
+                      }} 
+                      className={`py-3 rounded-2xl text-[10px] font-black uppercase transition-all ${saveAsMode === 'start' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}
+                    >
+                      New Start Date
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setSaveAsMode('end');
+                        setSaveAsData(d => ({ ...d, plannedEndDate: d.plannedEndDate || d.plannedStartDate || '', plannedStartDate: '' }));
+                      }} 
+                      className={`py-3 rounded-2xl text-[10px] font-black uppercase transition-all ${saveAsMode === 'end' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}
+                    >
+                      New End Date
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Target {saveAsMode === 'start' ? 'Start' : 'End'} Date</label>
+                    <input 
+                      type="date" 
+                      value={saveAsMode === 'start' ? saveAsData.plannedStartDate : saveAsData.plannedEndDate} 
+                      onChange={e => {
+                        const v = e.target.value;
+                        if (saveAsMode === 'start') setSaveAsData(d => ({ ...d, plannedStartDate: v, plannedEndDate: '' }));
+                        else setSaveAsData(d => ({ ...d, plannedEndDate: v, plannedStartDate: '' }));
+                      }} 
+                      className="w-full px-4 py-3 bg-slate-50 border-2 border-transparent focus:border-indigo-600 rounded-xl outline-none font-bold text-slate-900" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Is template</label>
+                    <select value={saveAsData.isTemplate ? 'Yes' : 'No'} onChange={e => setSaveAsData(d => ({ ...d, isTemplate: e.target.value === 'Yes' }))} className="w-full px-4 py-3 bg-slate-50 border-2 border-transparent focus:border-indigo-600 rounded-xl outline-none font-bold text-slate-900">
+                      <option value="No">No</option>
+                      <option value="Yes">Yes</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button onClick={() => setIsSaveAsModalOpen(false)} className="flex-1 py-4 text-slate-400 font-black text-xs uppercase hover:text-slate-600 transition-all">Cancel</button>
+                <button onClick={handleSaveAs} disabled={saveAsLoading || !saveAsData.name} className="flex-1 py-4 bg-indigo-600 text-white font-black text-xs rounded-2xl uppercase shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all disabled:opacity-40">
+                  {saveAsLoading ? 'Saving...' : 'Confirm'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
       {isRescheduleModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8 space-y-6">

@@ -13,3 +13,17 @@ frontend/build/
 
 # OS
 .DS_Store
+
+# Temporary files and logs
+tmp_*
+*.log
+git_diff*.txt
+errors*.txt
+build_log*.txt
+build_utf8*.txt
+details_diff*.txt
+role_files*.txt
+diag_output.txt
+deleted_files_by_*.txt
+*.xlsx
+/pms-uploads/

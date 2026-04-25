@@ -9,4 +9,5 @@ public interface ActivityDeliverableRepository extends JpaRepository<ActivityDel
     List<ActivityDeliverable> findByTargetTypeAndTargetId(String targetType, String targetId);
     List<ActivityDeliverable> findByDeliverableId(Long deliverableId);
     boolean existsByTargetTypeAndTargetIdAndDeliverableId(String targetType, String targetId, Long deliverableId);
+    boolean existsByDeliverableId(Long deliverableId);
 }

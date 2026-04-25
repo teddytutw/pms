@@ -39,6 +39,7 @@ interface WBSProject {
   currentPhase?: string;
   statusIndicator?: string;
   responsibleRoles?: string;
+  isTemplate?: boolean;
 }
 
 interface WBSUser {
@@ -180,18 +181,18 @@ export default function WBSView({
 
             return (
               <div key={project.id} className="border-b border-gray-100">
-                <div className="flex items-center px-4 py-1.5 hover:bg-gray-50 bg-white group border-l-4 border-l-indigo-600">
+                <div className={`flex items-center px-4 py-1.5 hover:bg-gray-50 bg-white group border-l-4 ${project.isTemplate ? 'border-l-blue-400' : 'border-l-indigo-600'}`}>
                   <div className="w-14 shrink-0 flex items-center pr-2">
                     <button onClick={() => setExpandedProjects(p => ({ ...p, [project.id]: !isExp }))} className="text-gray-400 hover:text-indigo-600 w-full flex justify-center">
                       {isExp ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                     </button>
                   </div>
                   <div className="w-[180px] shrink-0 flex items-center gap-2 overflow-hidden pr-2">
-                    <FolderOpen className="w-3 h-3 text-indigo-600 shrink-0" />
+                    <FolderOpen className={`w-3 h-3 shrink-0 ${project.isTemplate ? 'text-blue-400' : 'text-indigo-600'}`} />
                     {editingKey === `project-${project.id}` ? (
                       <InlineEdit value={project.name} onSave={v => { onRenameProject?.(project.id, v); setEditingKey(null); }} onCancel={() => setEditingKey(null)} />
                     ) : (
-                      <span className="font-black text-indigo-900 truncate cursor-pointer" onClick={() => onSelectProject?.(project.id)} onDoubleClick={() => setEditingKey(`project-${project.id}`)}>{project.name}</span>
+                      <span className={`font-black truncate cursor-pointer ${project.isTemplate ? 'text-blue-500' : 'text-indigo-900'}`} onClick={() => onSelectProject?.(project.id)} onDoubleClick={() => setEditingKey(`project-${project.id}`)}>{project.name}</span>
                     )}
                   </div>
                   <div className="w-20 shrink-0 flex justify-center"><StatusIndicator status={project.statusIndicator} /></div>
@@ -199,7 +200,7 @@ export default function WBSView({
                   <div className="w-24 shrink-0 px-1"></div>
                   <div className="w-24 shrink-0 px-2"></div>
                   <div className="w-24 shrink-0 px-2"></div>
-                  <div className="w-24 shrink-0 px-2 text-right text-[9px] font-black text-indigo-600">
+                  <div className={`w-24 shrink-0 px-2 text-right text-[9px] font-black ${project.isTemplate ? 'text-blue-500' : 'text-indigo-600'}`}>
                     {(() => { if (!pts.length) return '-'; const ds = pts.filter(t => t.plannedStartDate && t.plannedEndDate); if (!ds.length) return '-'; const s = ds.sort((a,b) => a.plannedStartDate!.localeCompare(b.plannedStartDate!))[0].plannedStartDate!; const e = ds.sort((a,b) => b.plannedEndDate!.localeCompare(a.plannedEndDate!))[0].plannedEndDate!; const d = calcWorkingDays(s, e); return d > 0 ? `${d}d` : '-'; })()}
                   </div>
                   <div className="w-24 shrink-0 px-2"></div>
@@ -225,18 +226,18 @@ export default function WBSView({
                                       <button onClick={() => setExpandedPhases(p => ({ ...p, [phase]: !phExp }))} className="text-gray-400 w-4 pl-1">{phExp ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}</button>
                                       <div className="text-[9px] font-black text-gray-500 w-full text-center">{phaseIdx + 1}</div>
                                     </div>
-                                    <div className="w-[180px] shrink-0 flex items-center gap-2 pr-2 overflow-hidden font-bold text-gray-700 cursor-pointer" onClick={() => onSelectPhase?.(`${project.id}-${phase}`)}>
-                                       <Layers className="w-3 h-3 text-violet-600 shrink-0" /><span className="truncate">{phase}</span>
+                                    <div className={`w-[180px] shrink-0 flex items-center gap-2 pr-2 overflow-hidden font-bold cursor-pointer ${project.isTemplate ? 'text-blue-500' : 'text-gray-700'}`} onClick={() => onSelectPhase?.(`${project.id}-${phase}`)}>
+                                       <Layers className={`w-3 h-3 shrink-0 ${project.isTemplate ? 'text-blue-400' : 'text-violet-600'}`} /><span className="truncate">{phase}</span>
                                     </div>
                                     <div className="w-20 shrink-0 flex justify-center"><StatusIndicator status={gate.statusIndicator} /></div>
                                     <div className="w-24 shrink-0 px-1">
-                                      <select className="w-full bg-white border border-gray-200 rounded text-[9px] font-bold outline-none py-0.5" value={gate.responsibleRoles || ''} onChange={(e) => onUpdatePhase?.(gate.id, { responsibleRoles: e.target.value })} onClick={e => e.stopPropagation()}>
+                                      <select className={`w-full bg-white border border-gray-200 rounded text-[9px] font-bold outline-none py-0.5 ${project.isTemplate ? 'text-blue-500' : ''}`} value={gate.responsibleRoles || ''} onChange={(e) => onUpdatePhase?.(gate.id, { responsibleRoles: e.target.value })} onClick={e => e.stopPropagation()}>
                                         <option value="">- Role -</option>{roles.map(r => <option key={r.id} value={r.roleName}>{r.roleName}</option>)}
                                       </select>
                                     </div>
                                     <div className="w-24 shrink-0 px-1"></div>
                                     <div className="w-24 shrink-0 px-2 text-right"></div>
-                                    <div className="w-24 shrink-0 px-2 text-right font-black text-violet-600 text-[9px]">
+                                    <div className={`w-24 shrink-0 px-2 text-right font-black text-[9px] ${project.isTemplate ? 'text-blue-500' : 'text-violet-600'}`}>
                                       {(() => { const ds = phts.filter(t => t.plannedStartDate && t.plannedEndDate); if (!ds.length) return '-'; const s = ds.sort((a,b) => a.plannedStartDate!.localeCompare(b.plannedStartDate!))[0].plannedStartDate!; const e = ds.sort((a,b) => b.plannedEndDate!.localeCompare(a.plannedEndDate!))[0].plannedEndDate!; const d = calcWorkingDays(s, e); return d > 0 ? `${d}d` : '-'; })()}
                                     </div>
                                     <div className="w-24 shrink-0 px-2"></div><div className="w-10 shrink-0"></div>
@@ -248,21 +249,21 @@ export default function WBSView({
                                           {phts.map((task, idx) => (
                                             <Draggable key={task.id} draggableId={String(task.id)} index={idx}>
                                               {(dragProvided, dragSnapshot) => (
-                                                <div ref={dragProvided.innerRef} {...dragProvided.draggableProps} className={`flex items-center px-4 py-1 border-b border-gray-50 cursor-pointer ${selectedTaskId === task.id ? 'bg-indigo-50 ring-1 ring-indigo-200 shadow-sm' : 'hover:bg-gray-50 bg-white'} ${dragSnapshot.isDragging ? 'shadow-lg z-50 bg-white' : ''}`} onClick={() => onSelectTask(task.id)}>
+                                                <div ref={dragProvided.innerRef} {...dragProvided.draggableProps} className={`flex items-center px-4 py-1 border-b border-gray-50 cursor-pointer ${selectedTaskId === task.id ? 'bg-indigo-50 ring-1 ring-indigo-200 shadow-sm' : project.isTemplate ? 'hover:bg-blue-50 bg-blue-50/20' : 'hover:bg-gray-50 bg-white'} ${dragSnapshot.isDragging ? 'shadow-lg z-50 bg-white' : ''}`} onClick={() => onSelectTask(task.id)}>
                                                   <div className="w-14 shrink-0 flex items-center pr-2" style={{ paddingLeft: `${getTaskLevel(task) * 24}px` }}>
                                                      <div {...dragProvided.dragHandleProps} className="opacity-0 group-hover:opacity-100 text-gray-300 w-4"><GripVertical className="w-3 h-3" /></div>
                                                      <div className="text-[9px] font-black text-gray-500 w-full text-center">{wbsMap[task.id]}</div>
                                                   </div>
                                                   <div className="w-[180px] shrink-0 flex items-center gap-2 pr-2">
                                                      <div className={`h-1 w-1 rounded-full shrink-0 ${task.status === '已完成' ? 'bg-green-500' : (task.status === '進行中' ? 'bg-blue-500' : 'bg-gray-300')}`} />
-                                                     <input type="text" value={task.title} onChange={(e) => onUpdateTask?.(task.id, { title: e.target.value })} onClick={(e) => e.stopPropagation()} className="w-full bg-transparent border border-transparent hover:bg-white hover:border-gray-200 focus:bg-white focus:border-indigo-400 rounded px-1 py-0.5 text-[10px] font-medium truncate outline-none" />
+                                                     <input type="text" value={task.title} onChange={(e) => onUpdateTask?.(task.id, { title: e.target.value })} onClick={(e) => e.stopPropagation()} className={`w-full bg-transparent border border-transparent hover:bg-white hover:border-gray-200 focus:bg-white focus:border-indigo-400 rounded px-1 py-0.5 text-[10px] truncate outline-none ${project.isTemplate ? 'text-blue-600 font-bold' : 'font-medium'}`} />
                                                   </div>
-                                                  <div className="w-20 shrink-0 px-1"><select className="w-full bg-transparent border border-transparent hover:bg-white rounded text-[9px] font-bold py-0.5" value={task.status || 'TODO'} onChange={(e) => onUpdateTask?.(task.id, { status: e.target.value })} onClick={e => e.stopPropagation()}>{['TODO','PROG','DONE','OVR'].map(s => <option key={s} value={s}>{s}</option>)}</select></div>
-                                                  <div className="w-24 shrink-0 px-1"><select className="w-full bg-transparent border border-transparent hover:bg-white rounded text-[9px] font-bold py-0.5" value={task.responsibleRoles || ''} onChange={(e) => onUpdateTask?.(task.id, { responsibleRoles: e.target.value })} onClick={e => e.stopPropagation()}><option value="">-</option>{roles.map(r => <option key={r.id} value={r.roleName}>{r.roleName}</option>)}</select></div>
-                                                  <div className="w-24 shrink-0 px-1"><select className="w-full bg-transparent border border-transparent hover:bg-white rounded text-[9px] font-bold py-0.5" value={task.assigneeId || ''} onChange={(e) => onUpdateTask?.(task.id, { assigneeId: e.target.value ? Number(e.target.value) : undefined })} onClick={e => e.stopPropagation()}><option value="">-</option>{users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}</select></div>
-                                                  <div className="w-24 shrink-0 px-2"><input type="date" value={task.plannedStartDate?.split('T')[0] || ''} onChange={(e) => onUpdateTask?.(task.id, { plannedStartDate: e.target.value })} onClick={e => e.stopPropagation()} className="w-full bg-transparent text-[9px] font-bold outline-none" /></div>
-                                                  <div className="w-24 shrink-0 px-2"><input type="date" value={task.plannedEndDate?.split('T')[0] || ''} onChange={(e) => onUpdateTask?.(task.id, { plannedEndDate: e.target.value })} onClick={e => e.stopPropagation()} className="w-full bg-transparent text-[9px] font-bold outline-none" /></div>
-                                                  <div className="w-24 shrink-0 px-2 text-right pr-1 font-black text-indigo-600 text-[9px]">{calcWorkingDays(task.plannedStartDate, task.plannedEndDate) || '-'}d</div>
+                                                  <div className="w-20 shrink-0 px-1"><select className={`w-full bg-transparent border border-transparent hover:bg-white rounded text-[9px] font-bold py-0.5 ${project.isTemplate ? 'text-blue-500' : ''}`} value={task.status || 'TODO'} onChange={(e) => onUpdateTask?.(task.id, { status: e.target.value })} onClick={e => e.stopPropagation()}>{['TODO','PROG','DONE','OVR'].map(s => <option key={s} value={s}>{s}</option>)}</select></div>
+                                                  <div className="w-24 shrink-0 px-1"><select className={`w-full bg-transparent border border-transparent hover:bg-white rounded text-[9px] font-bold py-0.5 ${project.isTemplate ? 'text-blue-500' : ''}`} value={task.responsibleRoles || ''} onChange={(e) => onUpdateTask?.(task.id, { responsibleRoles: e.target.value })} onClick={e => e.stopPropagation()}><option value="">-</option>{roles.map(r => <option key={r.id} value={r.roleName}>{r.roleName}</option>)}</select></div>
+                                                  <div className="w-24 shrink-0 px-1"><select className={`w-full bg-transparent border border-transparent hover:bg-white rounded text-[9px] font-bold py-0.5 ${project.isTemplate ? 'text-blue-500' : ''}`} value={task.assigneeId || ''} onChange={(e) => onUpdateTask?.(task.id, { assigneeId: e.target.value ? Number(e.target.value) : undefined })} onClick={e => e.stopPropagation()}><option value="">-</option>{users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}</select></div>
+                                                  <div className="w-24 shrink-0 px-2"><input type="date" value={task.plannedStartDate?.split('T')[0] || ''} onChange={(e) => onUpdateTask?.(task.id, { plannedStartDate: e.target.value })} onClick={e => e.stopPropagation()} className={`w-full bg-transparent text-[9px] font-bold outline-none ${project.isTemplate ? 'text-blue-500' : ''}`} /></div>
+                                                  <div className="w-24 shrink-0 px-2"><input type="date" value={task.plannedEndDate?.split('T')[0] || ''} onChange={(e) => onUpdateTask?.(task.id, { plannedEndDate: e.target.value })} onClick={e => e.stopPropagation()} className={`w-full bg-transparent text-[9px] font-bold outline-none ${project.isTemplate ? 'text-blue-500' : ''}`} /></div>
+                                                  <div className={`w-24 shrink-0 px-2 text-right pr-1 font-black text-[9px] ${project.isTemplate ? 'text-blue-500' : 'text-indigo-600'}`}>{calcWorkingDays(task.plannedStartDate, task.plannedEndDate) || '-'}d</div>
                                                   <div className="w-24 shrink-0 px-2"><input type="text" value={task.predecessors || ''} onChange={(e) => onUpdateTask?.(task.id, { predecessors: e.target.value })} onClick={e => e.stopPropagation()} className="w-full bg-transparent text-[9px] font-bold outline-none truncate" placeholder="e.g. T1" /></div>
                                                   <div className="w-10 shrink-0 text-center"><button onClick={(e) => { e.stopPropagation(); onDeleteTask?.(task.id); }} className="text-gray-300 hover:text-red-500"><X className="w-3 h-3" /></button></div>
                                                 </div>
@@ -305,7 +306,7 @@ export default function WBSView({
                                             </div>
                                             <div className="w-[180px] shrink-0 flex items-center gap-2 pr-2">
                                                <div className={`h-1 w-1 rounded-full shrink-0 ${task.status === '已完成' ? 'bg-green-500' : 'bg-slate-300'}`} />
-                                               <input type="text" value={task.title} onChange={(e) => onUpdateTask?.(task.id, { title: e.target.value })} className="w-full bg-transparent text-[10px] outline-none" />
+                                               <input type="text" value={task.title} onChange={(e) => onUpdateTask?.(task.id, { title: e.target.value })} className={`w-full bg-transparent outline-none ${project.isTemplate ? 'text-blue-600 font-bold' : 'text-[10px]'}`} />
                                             </div>
                                             <div className="w-20 shrink-0 px-1"></div><div className="w-24 shrink-0 px-1"></div><div className="w-24 shrink-0 px-1"></div><div className="w-24 shrink-0 px-2"></div><div className="w-24 shrink-0 px-2"></div><div className="w-24 shrink-0 px-2 text-right"></div><div className="w-24 shrink-0 px-2"></div><div className="w-10 shrink-0"></div>
                                           </div>
